@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.7";
-const STORAGE_KEY = "financehub-mobile-v07";
+const APP_VERSION = "v0.8";
+const STORAGE_KEY = "financehub-mobile-v08";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v07",
   "financehub-mobile-v06",
   "financehub-mobile-v05",
   "financehub-mobile-v04",
