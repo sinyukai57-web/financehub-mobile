@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0f766e">
+    <title>FinanceHub Mobile</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="overline">FinanceHub</p>
+          <h1 id="screenTitle">Accueil</h1>
+        </div>
+        <button class="icon-button" id="refreshButton" type="button" aria-label="Actualiser">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 12a8 8 0 0 1-14.2 5.1M4 12a8 8 0 0 1 14.2-5.1"/>
+            <path d="M18 3v4h-4M6 21v-4h4"/>
+          </svg>
+        </button>
+      </header>
+
+      <main class="app-main">
+        <section class="view is-active" data-view="dashboard">
+          <div class="hero-balance">
+            <span>Solde estime apres charges</span>
+            <strong id="availableAfter">0,00 EUR</strong>
+            <small id="dashboardState">Solde actuel + a venir</small>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric-card">
+              <span>Paie heures saisies</span>
+              <strong id="estimatedPay">0,00 EUR</strong>
+            </article>
+            <article class="metric-card">
+              <span>Acomptes a surveiller</span>
+              <strong id="advanceWatch">0,00 EUR</strong>
+            </article>
+            <article class="metric-card">
+              <span>Charges a venir</span>
+              <strong id="outgoingTotal">0,00 EUR</strong>
+            </article>
+            <article class="metric-card">
+              <span>Investissement prudent</span>
+              <strong id="investSafe">0,00 EUR</strong>
+            </article>
+          </div>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h2>Mois en cours</h2>
+              <span id="monthLabel">Juillet 2026</span>
+            </div>
+            <div class="meter-list">
+              <div class="meter-row">
+                <span>Revenus a venir</span>
+                <div class="meter"><i id="incomeBar"></i></div>
+                <strong id="incomeTotal">0,00 EUR</strong>
+              </div>
+              <div class="meter-row">
+                <span>Sorties</span>
+                <div class="meter"><i id="outgoingBar"></i></div>
+                <strong id="outgoingTotalBar">0,00 EUR</strong>
+              </div>
+              <div class="meter-row">
+                <span>Reserve</span>
+                <div class="meter"><i id="reserveBar"></i></div>
+                <strong id="reserveValue">0,00 EUR</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h2>A surveiller</h2>
+              <span id="watchCount">0</span>
+            </div>
+            <ul class="watch-list" id="watchList"></ul>
+          </section>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h2>Dernieres saisies</h2>
+            </div>
+            <ul class="activity-list" id="activityList"></ul>
+          </section>
+        </section>
+
+        <section class="view" data-view="hours">
+          <form class="panel form-panel" id="shiftForm">
+            <div class="panel-title">
+              <h2>Saisie heures</h2>
+              <span id="shiftMonthTotal">0,00 EUR</span>
+            </div>
+            <input type="hidden" id="shiftId">
+            <label>
+              <span>Date</span>
+              <input id="shiftDate" type="date" required>
+            </label>
+            <div class="field-grid">
+              <label>
+                <span>Debut</span>
+                <input id="shiftStart" type="time" value="10:00" required>
+              </label>
+              <label>
+                <span>Fin</span>
+                <input id="shiftEnd" type="time" value="17:30" required>
+              </label>
+            </div>
+            <label>
+              <span>Pause payee</span>
+              <select id="shiftPause">
+                <option value="25">25 min</option>
+                <option value="0">0 min</option>
+                <option value="30">30 min</option>
+                <option value="45">45 min</option>
+              </select>
+            </label>
+            <label>
+              <span>Site</span>
+              <input id="shiftSite" type="text" value="Mission Adecco">
+            </label>
+            <div class="toggle-row">
+              <label class="toggle-card">
+                <input id="shiftPanier" type="checkbox" checked>
+                <span>Panier</span>
+              </label>
+              <label class="toggle-card">
+                <input id="shiftHabillage" type="checkbox" checked>
+                <span>Habillage</span>
+              </label>
+            </div>
+            <label>
+              <span>Note</span>
+              <input id="shiftNote" type="text" placeholder="Optionnel">
+            </label>
+            <div class="calc-preview">
+              <span>Heures payees</span>
+              <strong id="shiftPreviewHours">0,00 h</strong>
+              <span>Net estime</span>
+              <strong id="shiftPreviewNet">0,00 EUR</strong>
+            </div>
+            <button class="primary-button" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/>
+                <path d="M17 21v-8H7v8M7 3v5h8"/>
+              </svg>
+              Enregistrer
+            </button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h2>Jours saisis</h2>
+              <span id="shiftCount">0</span>
+            </div>
+            <ul class="entry-list" id="shiftList"></ul>
+          </section>
+        </section>
+
+        <section class="view" data-view="advances">
+          <form class="panel form-panel" id="advanceForm">
+            <div class="panel-title">
+              <h2>Acompte</h2>
+              <span id="advanceRemain">0,00 EUR</span>
+            </div>
+            <label>
+              <span>Date</span>
+              <input id="advanceDate" type="date" required>
+            </label>
+            <label>
+              <span>Montant</span>
+              <input id="advanceAmount" type="number" inputmode="decimal" step="0.01" min="0" required>
+            </label>
+            <label>
+              <span>Statut</span>
+              <select id="advanceStatus">
+                <option value="Prevu">Prevu</option>
+                <option value="Recu">Recu</option>
+                <option value="Deduit">Deduit</option>
+              </select>
+            </label>
+            <label>
+              <span>Note</span>
+              <input id="advanceNote" type="text" placeholder="Bulletin, Revolut...">
+            </label>
+            <button class="primary-button" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              Ajouter
+            </button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h2>Suivi acomptes</h2>
+              <span id="advanceCount">0</span>
+            </div>
+            <ul class="entry-list" id="advanceList"></ul>
+          </section>
+        </section>
+
+        <section class="view" data-view="expenses">
+          <form class="panel form-panel" id="expenseForm">
+            <div class="panel-title">
+              <h2>Depense</h2>
+              <span id="expenseMonthTotal">0,00 EUR</span>
+            </div>
+            <label>
+              <span>Date</span>
+              <input id="expenseDate" type="date" required>
+            </label>
+            <label>
+              <span>Montant</span>
+              <input id="expenseAmount" type="number" inputmode="decimal" step="0.01" min="0" required>
+            </label>
+            <label>
+              <span>Categorie</span>
+              <select id="expenseCategory">
+                <option>Courses</option>
+                <option>Carburant</option>
+                <option>Sante</option>
+                <option>Abonnement</option>
+                <option>Loisir</option>
+                <option>Autre</option>
+              </select>
+            </label>
+            <label>
+              <span>Note</span>
+              <input id="expenseNote" type="text" placeholder="Optionnel">
+            </label>
+            <button class="primary-button" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              Ajouter
+            </button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h2>Depenses locales</h2>
+              <span id="expenseCount">0</span>
+            </div>
+            <ul class="entry-list" id="expenseList"></ul>
+          </section>
+        </section>
+
+        <section class="view" data-view="settings">
+          <form class="panel form-panel" id="settingsForm">
+            <div class="panel-title">
+              <h2>Reglages</h2>
+              <span>Calculs</span>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>Taux brut</span>
+                <input id="settingHourlyRate" type="number" step="0.01" min="0">
+              </label>
+              <label>
+                <span>Taux net %</span>
+                <input id="settingNetRate" type="number" step="0.1" min="0">
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>Panier</span>
+                <input id="settingPanier" type="number" step="0.01" min="0">
+              </label>
+              <label>
+                <span>Habillage</span>
+                <input id="settingHabillage" type="number" step="0.01" min="0">
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>Solde actuel</span>
+                <input id="settingCash" type="number" step="0.01">
+              </label>
+              <label>
+                <span>Reserve cible</span>
+                <input id="settingReserve" type="number" step="0.01" min="0">
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>Revenus a venir</span>
+                <input id="settingOtherIncome" type="number" step="0.01" min="0">
+              </label>
+              <label>
+                <span>Charges fixes</span>
+                <input id="settingFixedCharges" type="number" step="0.01" min="0">
+              </label>
+            </div>
+            <label>
+              <span>Depenses deja passees (info)</span>
+              <input id="settingBaseExpenses" type="number" step="0.01" min="0">
+            </label>
+            <button class="primary-button" type="submit">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/>
+                <path d="M17 21v-8H7v8M7 3v5h8"/>
+              </svg>
+              Sauvegarder
+            </button>
+          </form>
+
+          <section class="panel action-panel">
+            <a class="link-button" href="https://docs.google.com/spreadsheets/d/10XJELK1gXiBho_0YdpGvEzyDOOV_kzbW25C47iku1lw/edit" target="_blank" rel="noreferrer">
+              Ouvrir le Google Sheet
+            </a>
+            <button class="secondary-button" id="exportButton" type="button">Exporter les donnees</button>
+            <button class="danger-button" id="resetButton" type="button">Reinitialiser la V0.4</button>
+          </section>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Navigation">
+        <button class="nav-item is-active" type="button" data-target="dashboard">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 13h7V4H4v9ZM13 20h7V4h-7v16ZM4 20h7v-5H4v5Z"/>
+          </svg>
+          <span>Accueil</span>
+        </button>
+        <button class="nav-item" type="button" data-target="hours">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8"/>
+            <path d="M12 7v5l3 2"/>
+          </svg>
+          <span>Heures</span>
+        </button>
+        <button class="nav-item" type="button" data-target="advances">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16v10H4z"/>
+            <path d="M8 11h4M16 13h0"/>
+          </svg>
+          <span>Acomptes</span>
+        </button>
+        <button class="nav-item" type="button" data-target="expenses">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 3h12l1 18H5L6 3Z"/>
+            <path d="M9 7h6"/>
+          </svg>
+          <span>Depenses</span>
+        </button>
+        <button class="nav-item" type="button" data-target="settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L5 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c0-.3.1-.6.1-1Z"/>
+          </svg>
+          <span>Reglages</span>
+        </button>
+      </nav>
+    </div>
+
+    <template id="emptyTemplate">
+      <li class="empty-state">Aucune saisie pour le moment.</li>
+    </template>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

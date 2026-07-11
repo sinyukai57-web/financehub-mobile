@@ -1,0 +1,679 @@
+const STORAGE_KEY = "financehub-mobile-v04";
+const LEGACY_STORAGE_KEYS = ["financehub-mobile-v03", "financehub-mobile-v02", "financehub-mobile-v01"];
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/10XJELK1gXiBho_0YdpGvEzyDOOV_kzbW25C47iku1lw/edit";
+
+const money = new Intl.NumberFormat("fr-FR", {
+  style: "currency",
+  currency: "EUR",
+});
+
+const numberFr = new Intl.NumberFormat("fr-FR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const defaultSettings = {
+  hourlyRate: 13.83,
+  netRate: 80.168,
+  ifmRate: 10,
+  paidLeaveRate: 10,
+  panier: 4.35,
+  habillage: 0.75,
+  cash: 237.95,
+  otherIncome: 982.89,
+  fixedCharges: 734,
+  baseExpenses: 475.13,
+  reserveTarget: 1000,
+};
+
+const viewTitles = {
+  dashboard: "Accueil",
+  hours: "Heures",
+  advances: "Acomptes",
+  expenses: "Depenses",
+  settings: "Reglages",
+};
+
+let state = loadState();
+
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+function loadState() {
+  const saved =
+    localStorage.getItem(STORAGE_KEY) ||
+    LEGACY_STORAGE_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      return migrateState({
+        settings: { ...defaultSettings, ...parsed.settings },
+        shifts: parsed.shifts || [],
+        advances: parsed.advances || [],
+        expenses: parsed.expenses || [],
+      });
+    } catch {
+      return createInitialState();
+    }
+  }
+  return createInitialState();
+}
+
+function migrateState(savedState) {
+  const settings = { ...savedState.settings };
+  if (settings.cash === 57.95) {
+    settings.cash = 237.95;
+  }
+  if (settings.otherIncome === 1669.8) {
+    settings.otherIncome = 982.89;
+  }
+
+  const cleaned = {
+    ...savedState,
+    settings,
+    shifts: savedState.shifts.filter((shift) => shift.note !== "Pre-rempli hors week-end"),
+    advances: savedState.advances.map(normalizeAdvance),
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+  LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  return cleaned;
+}
+
+function normalizeAdvance(advance) {
+  if (
+    Number(advance.amount) === 180 &&
+    advance.date === "2026-07-11" &&
+    advance.status === "Prevu"
+  ) {
+    return {
+      ...advance,
+      date: "2026-07-10",
+      status: "Recu",
+      note: "Recu - a deduire prochaine paie",
+    };
+  }
+  return advance;
+}
+
+function createInitialState() {
+  return {
+    settings: { ...defaultSettings },
+    shifts: [],
+    advances: [
+      {
+        id: crypto.randomUUID(),
+        date: "2026-06-18",
+        amount: 200,
+        status: "Deduit",
+        note: "Bulletin 06/2026",
+      },
+      {
+        id: crypto.randomUUID(),
+        date: "2026-06-24",
+        amount: 300,
+        status: "Deduit",
+        note: "Bulletin 06/2026",
+      },
+      {
+        id: crypto.randomUUID(),
+        date: "2026-07-08",
+        amount: 350,
+        status: "Deduit",
+        note: "Bulletin 06/2026",
+      },
+      {
+        id: crypto.randomUUID(),
+        date: "2026-07-10",
+        amount: 180,
+        status: "Recu",
+        note: "Recu - a deduire prochaine paie",
+      },
+    ],
+    expenses: [],
+  };
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function parseAmount(value) {
+  return Number(String(value).replace(",", ".")) || 0;
+}
+
+function formatMoney(value) {
+  return money.format(value || 0).replace(/\u00a0/g, " ");
+}
+
+function formatHours(value) {
+  return `${numberFr.format(value || 0)} h`;
+}
+
+function formatDate(dateString) {
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(`${dateString}T12:00:00`));
+}
+
+function timeToMinutes(value) {
+  const [hours, minutes] = String(value || "00:00").split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function paidHours(shift) {
+  const start = timeToMinutes(shift.start);
+  let end = timeToMinutes(shift.end);
+  if (end < start) end += 24 * 60;
+  return Math.max(0, (end - start) / 60);
+}
+
+function isoWeek(dateString) {
+  const source = new Date(`${dateString}T00:00:00Z`);
+  const dayNumber = source.getUTCDay() || 7;
+  source.setUTCDate(source.getUTCDate() + 4 - dayNumber);
+  const yearStart = new Date(Date.UTC(source.getUTCFullYear(), 0, 1));
+  return Math.ceil(((source - yearStart) / 86400000 + 1) / 7);
+}
+
+function calculatePayroll(shifts) {
+  const settings = state.settings;
+  const hourlyRate = settings.hourlyRate;
+  const netRate = settings.netRate / 100;
+  const ifmRate = settings.ifmRate / 100;
+  const paidLeaveRate = settings.paidLeaveRate / 100;
+  const sorted = [...shifts].sort((a, b) => a.date.localeCompare(b.date));
+  const weeklyTotals = new Map();
+
+  const rows = sorted.map((shift) => {
+    const week = `${new Date(`${shift.date}T12:00:00`).getFullYear()}-${isoWeek(shift.date)}`;
+    const previous = weeklyTotals.get(week) || 0;
+    const hours = paidHours(shift);
+    const normal = Math.max(0, Math.min(hours, 35 - previous));
+    const afterNormal = Math.max(0, hours - normal);
+    const usedBeforeOt50 = Math.max(35, previous);
+    const ot25 = Math.max(0, Math.min(afterNormal, 43 - usedBeforeOt50));
+    const ot50 = Math.max(0, hours - normal - ot25);
+    weeklyTotals.set(week, previous + hours);
+
+    const premium = (shift.panier ? settings.panier : 0) + (shift.habillage ? settings.habillage : 0);
+    const grossHours = normal * hourlyRate + ot25 * hourlyRate * 1.25 + ot50 * hourlyRate * 1.5;
+    const grossBase = grossHours + premium;
+    const ifm = grossBase * ifmRate;
+    const paidLeave = (grossBase + ifm) * paidLeaveRate;
+    const grossTotal = grossBase + ifm + paidLeave;
+    const net = grossTotal * netRate;
+
+    return {
+      shift,
+      hours,
+      normal,
+      ot25,
+      ot50,
+      grossTotal,
+      net,
+    };
+  });
+
+  return rows.reduce(
+    (total, row) => {
+      total.hours += row.hours;
+      total.normal += row.normal;
+      total.ot25 += row.ot25;
+      total.ot50 += row.ot50;
+      total.gross += row.grossTotal;
+      total.net += row.net;
+      total.rows.push(row);
+      return total;
+    },
+    { hours: 0, normal: 0, ot25: 0, ot50: 0, gross: 0, net: 0, rows: [] },
+  );
+}
+
+function localExpenseTotal() {
+  return state.expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+}
+
+function advanceWatchTotal() {
+  return state.advances
+    .filter((advance) => advance.status !== "Deduit")
+    .reduce((sum, advance) => sum + Number(advance.amount || 0), 0);
+}
+
+function advanceRemainTotal() {
+  return state.advances
+    .filter((advance) => advance.status !== "Deduit")
+    .reduce((sum, advance) => sum + Number(advance.amount || 0), 0);
+}
+
+function dashboardTotals() {
+  const payroll = calculatePayroll(state.shifts);
+  const expenses = localExpenseTotal();
+  const outgoing = state.settings.fixedCharges + expenses;
+  const income = state.settings.otherIncome;
+  const availableAfter = state.settings.cash + income - outgoing;
+  const investSafe = Math.max(
+    0,
+    Math.min(income * 0.05, availableAfter - state.settings.reserveTarget),
+  );
+  return { payroll, expenses, outgoing, income, availableAfter, investSafe };
+}
+
+function renderAll() {
+  renderDashboard();
+  renderShifts();
+  renderAdvances();
+  renderExpenses();
+  renderSettings();
+}
+
+function renderDashboard() {
+  const totals = dashboardTotals();
+  const watch = advanceWatchTotal();
+
+  $("#availableAfter").textContent = formatMoney(totals.availableAfter);
+  $("#estimatedPay").textContent = formatMoney(totals.payroll.net);
+  $("#advanceWatch").textContent = formatMoney(watch);
+  $("#outgoingTotal").textContent = formatMoney(totals.outgoing);
+  $("#investSafe").textContent = formatMoney(totals.investSafe);
+  $("#incomeTotal").textContent = formatMoney(totals.income);
+  $("#outgoingTotalBar").textContent = formatMoney(totals.outgoing);
+  $("#reserveValue").textContent = formatMoney(state.settings.reserveTarget);
+
+  const max = Math.max(totals.income, totals.outgoing, state.settings.reserveTarget, 1);
+  $("#incomeBar").style.width = `${Math.min(100, (totals.income / max) * 100)}%`;
+  $("#outgoingBar").style.width = `${Math.min(100, (totals.outgoing / max) * 100)}%`;
+  $("#reserveBar").style.width = `${Math.min(100, (state.settings.reserveTarget / max) * 100)}%`;
+
+  const watchItems = [];
+  if (watch > 0) {
+    watchItems.push({
+      title: "Acompte a verifier",
+      value: formatMoney(watch),
+      detail: "Reste connu a deduire ou confirmer",
+    });
+  }
+  if (totals.availableAfter < state.settings.reserveTarget) {
+    watchItems.push({
+      title: "Reserve non couverte",
+      value: formatMoney(state.settings.reserveTarget - totals.availableAfter),
+      detail: "Priorite au cash",
+    });
+  }
+  if (!watchItems.length) {
+    watchItems.push({
+      title: "Situation stable",
+      value: "OK",
+      detail: "Pas d'alerte locale",
+    });
+  }
+
+  $("#watchCount").textContent = String(watchItems.length);
+  $("#watchList").innerHTML = watchItems
+    .map(
+      (item) => `
+        <li class="watch-item">
+          <div>
+            <strong>${item.title}</strong>
+            <span>${item.detail}</span>
+          </div>
+          <strong>${item.value}</strong>
+        </li>
+      `,
+    )
+    .join("");
+
+  const activities = latestActivities();
+  $("#activityList").innerHTML = activities.length
+    ? activities
+        .map(
+          (item) => `
+            <li class="activity-item">
+              <strong>${item.title}</strong>
+              <span>${item.detail}</span>
+            </li>
+          `,
+        )
+        .join("")
+    : emptyHtml();
+}
+
+function latestActivities() {
+  const shifts = state.shifts.slice(-3).map((shift) => ({
+    date: shift.date,
+    title: `Heures ${formatDate(shift.date)}`,
+    detail: `${formatHours(paidHours(shift))} - ${shift.start} / ${shift.end}`,
+  }));
+  const advances = state.advances.slice(-2).map((advance) => ({
+    date: advance.date,
+    title: `Acompte ${formatMoney(advance.amount)}`,
+    detail: `${advance.status} - ${formatDate(advance.date)}`,
+  }));
+  const expenses = state.expenses.slice(-2).map((expense) => ({
+    date: expense.date,
+    title: `Depense ${formatMoney(expense.amount)}`,
+    detail: `${expense.category} - ${formatDate(expense.date)}`,
+  }));
+  return [...shifts, ...advances, ...expenses]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5);
+}
+
+function renderShifts() {
+  const payroll = calculatePayroll(state.shifts);
+  $("#shiftMonthTotal").textContent = formatMoney(payroll.net);
+  $("#shiftCount").textContent = `${state.shifts.length} jours`;
+
+  const rowMap = new Map(payroll.rows.map((row) => [row.shift.id, row]));
+  $("#shiftList").innerHTML = state.shifts.length
+    ? [...state.shifts]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((shift) => {
+          const row = rowMap.get(shift.id);
+          return `
+            <li class="entry-item">
+              <div>
+                <strong>${formatDate(shift.date)} - ${formatMoney(row?.net || 0)}</strong>
+                <span>${shift.start} / ${shift.end} - pause payee ${shift.pausePaidMinutes} min</span>
+                <div class="entry-meta">
+                  <span class="pill">${formatHours(row?.hours || 0)}</span>
+                  <span class="pill is-green">HS 25 ${numberFr.format(row?.ot25 || 0)} h</span>
+                </div>
+              </div>
+              <div class="entry-actions">
+                <button class="mini-button" type="button" data-edit-shift="${shift.id}" aria-label="Modifier">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4-.8L19 8l-3-3L5 16l-1 4Z"/><path d="m14 6 3 3"/></svg>
+                </button>
+                <button class="mini-button is-danger" type="button" data-delete-shift="${shift.id}" aria-label="Supprimer">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg>
+                </button>
+              </div>
+            </li>
+          `;
+        })
+        .join("")
+    : emptyHtml();
+}
+
+function renderAdvances() {
+  const remain = advanceRemainTotal();
+  $("#advanceRemain").textContent = formatMoney(remain);
+  $("#advanceCount").textContent = `${state.advances.length}`;
+  $("#advanceList").innerHTML = state.advances.length
+    ? [...state.advances]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map(
+          (advance) => `
+            <li class="entry-item">
+              <div>
+                <strong>${formatMoney(advance.amount)} - ${advance.status}</strong>
+                <span>${formatDate(advance.date)}${advance.note ? ` - ${escapeHtml(advance.note)}` : ""}</span>
+                <div class="entry-meta">
+                  <span class="pill ${advance.status === "Deduit" ? "is-green" : "is-amber"}">${advance.status}</span>
+                </div>
+              </div>
+              <button class="mini-button is-danger" type="button" data-delete-advance="${advance.id}" aria-label="Supprimer">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg>
+              </button>
+            </li>
+          `,
+        )
+        .join("")
+    : emptyHtml();
+}
+
+function renderExpenses() {
+  $("#expenseMonthTotal").textContent = formatMoney(localExpenseTotal());
+  $("#expenseCount").textContent = `${state.expenses.length}`;
+  $("#expenseList").innerHTML = state.expenses.length
+    ? [...state.expenses]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map(
+          (expense) => `
+            <li class="entry-item">
+              <div>
+                <strong>${formatMoney(expense.amount)} - ${escapeHtml(expense.category)}</strong>
+                <span>${formatDate(expense.date)}${expense.note ? ` - ${escapeHtml(expense.note)}` : ""}</span>
+              </div>
+              <button class="mini-button is-danger" type="button" data-delete-expense="${expense.id}" aria-label="Supprimer">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg>
+              </button>
+            </li>
+          `,
+        )
+        .join("")
+    : emptyHtml();
+}
+
+function renderSettings() {
+  $("#settingHourlyRate").value = state.settings.hourlyRate;
+  $("#settingNetRate").value = state.settings.netRate;
+  $("#settingPanier").value = state.settings.panier;
+  $("#settingHabillage").value = state.settings.habillage;
+  $("#settingCash").value = state.settings.cash;
+  $("#settingReserve").value = state.settings.reserveTarget;
+  $("#settingOtherIncome").value = state.settings.otherIncome;
+  $("#settingFixedCharges").value = state.settings.fixedCharges;
+  $("#settingBaseExpenses").value = state.settings.baseExpenses;
+}
+
+function emptyHtml() {
+  return $("#emptyTemplate").innerHTML;
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (char) => {
+    const map = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    };
+    return map[char];
+  });
+}
+
+function setView(name) {
+  $$(".view").forEach((view) => view.classList.toggle("is-active", view.dataset.view === name));
+  $$(".nav-item").forEach((item) => item.classList.toggle("is-active", item.dataset.target === name));
+  $("#screenTitle").textContent = viewTitles[name] || "FinanceHub";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function currentDateInput() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function fillFormDefaults() {
+  const today = currentDateInput();
+  $("#shiftDate").value = today;
+  $("#advanceDate").value = today;
+  $("#expenseDate").value = today;
+  $("#advanceAmount").value = "";
+  $("#expenseAmount").value = "";
+}
+
+function updateShiftPreview() {
+  const shift = readShiftForm();
+  const payroll = calculatePayroll([shift]);
+  $("#shiftPreviewHours").textContent = formatHours(paidHours(shift));
+  $("#shiftPreviewNet").textContent = formatMoney(payroll.net);
+}
+
+function readShiftForm() {
+  return {
+    id: $("#shiftId").value || crypto.randomUUID(),
+    date: $("#shiftDate").value,
+    start: $("#shiftStart").value,
+    end: $("#shiftEnd").value,
+    pausePaidMinutes: Number($("#shiftPause").value || 25),
+    site: $("#shiftSite").value.trim() || "Mission Adecco",
+    panier: $("#shiftPanier").checked,
+    habillage: $("#shiftHabillage").checked,
+    note: $("#shiftNote").value.trim(),
+  };
+}
+
+function bindEvents() {
+  $$(".nav-item").forEach((button) => {
+    button.addEventListener("click", () => setView(button.dataset.target));
+  });
+
+  $("#refreshButton").addEventListener("click", () => renderAll());
+
+  ["shiftDate", "shiftStart", "shiftEnd", "shiftPause", "shiftPanier", "shiftHabillage"].forEach((id) => {
+    $(`#${id}`).addEventListener("input", updateShiftPreview);
+  });
+
+  $("#shiftForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const shift = readShiftForm();
+    const index = state.shifts.findIndex((item) => item.id === shift.id || item.date === shift.date);
+    if (index >= 0) {
+      shift.id = state.shifts[index].id;
+      state.shifts[index] = shift;
+    } else {
+      state.shifts.push(shift);
+    }
+    saveState();
+    $("#shiftForm").reset();
+    $("#shiftId").value = "";
+    $("#shiftPause").value = "25";
+    $("#shiftPanier").checked = true;
+    $("#shiftHabillage").checked = true;
+    $("#shiftSite").value = "Mission Adecco";
+    $("#shiftDate").value = shift.date;
+    updateShiftPreview();
+    renderAll();
+  });
+
+  $("#shiftList").addEventListener("click", (event) => {
+    const editButton = event.target.closest("[data-edit-shift]");
+    const deleteButton = event.target.closest("[data-delete-shift]");
+    if (editButton) {
+      const shift = state.shifts.find((item) => item.id === editButton.dataset.editShift);
+      if (!shift) return;
+      $("#shiftId").value = shift.id;
+      $("#shiftDate").value = shift.date;
+      $("#shiftStart").value = shift.start;
+      $("#shiftEnd").value = shift.end;
+      $("#shiftPause").value = String(shift.pausePaidMinutes || 25);
+      $("#shiftSite").value = shift.site;
+      $("#shiftPanier").checked = Boolean(shift.panier);
+      $("#shiftHabillage").checked = Boolean(shift.habillage);
+      $("#shiftNote").value = shift.note || "";
+      updateShiftPreview();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    if (deleteButton) {
+      state.shifts = state.shifts.filter((item) => item.id !== deleteButton.dataset.deleteShift);
+      saveState();
+      renderAll();
+    }
+  });
+
+  $("#advanceForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.advances.push({
+      id: crypto.randomUUID(),
+      date: $("#advanceDate").value,
+      amount: parseAmount($("#advanceAmount").value),
+      status: $("#advanceStatus").value,
+      note: $("#advanceNote").value.trim(),
+    });
+    saveState();
+    $("#advanceAmount").value = "";
+    $("#advanceNote").value = "";
+    renderAll();
+  });
+
+  $("#advanceList").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-delete-advance]");
+    if (!button) return;
+    state.advances = state.advances.filter((item) => item.id !== button.dataset.deleteAdvance);
+    saveState();
+    renderAll();
+  });
+
+  $("#expenseForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.expenses.push({
+      id: crypto.randomUUID(),
+      date: $("#expenseDate").value,
+      amount: parseAmount($("#expenseAmount").value),
+      category: $("#expenseCategory").value,
+      note: $("#expenseNote").value.trim(),
+    });
+    saveState();
+    $("#expenseAmount").value = "";
+    $("#expenseNote").value = "";
+    renderAll();
+  });
+
+  $("#expenseList").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-delete-expense]");
+    if (!button) return;
+    state.expenses = state.expenses.filter((item) => item.id !== button.dataset.deleteExpense);
+    saveState();
+    renderAll();
+  });
+
+  $("#settingsForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.settings = {
+      ...state.settings,
+      hourlyRate: parseAmount($("#settingHourlyRate").value),
+      netRate: parseAmount($("#settingNetRate").value),
+      panier: parseAmount($("#settingPanier").value),
+      habillage: parseAmount($("#settingHabillage").value),
+      cash: parseAmount($("#settingCash").value),
+      reserveTarget: parseAmount($("#settingReserve").value),
+      otherIncome: parseAmount($("#settingOtherIncome").value),
+      fixedCharges: parseAmount($("#settingFixedCharges").value),
+      baseExpenses: parseAmount($("#settingBaseExpenses").value),
+    };
+    saveState();
+    renderAll();
+    setView("dashboard");
+  });
+
+  $("#exportButton").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "financehub-mobile-export.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
+  $("#resetButton").addEventListener("click", () => {
+    state = createInitialState();
+    saveState();
+    fillFormDefaults();
+    renderAll();
+    setView("dashboard");
+  });
+}
+
+function registerServiceWorker() {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  }
+}
+
+fillFormDefaults();
+bindEvents();
+updateShiftPreview();
+renderAll();
+registerServiceWorker();
+
+window.financeHubDebug = {
+  getState: () => state,
+  sheetUrl: SHEET_URL,
+};
