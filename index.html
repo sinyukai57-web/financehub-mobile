@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0f766e">
     <title>FinanceHub Mobile</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=014">
   </head>
   <body>
     <div class="app-shell">
@@ -33,7 +33,7 @@
 
           <div class="metric-grid">
             <article class="metric-card">
-              <span>Paie estimee du mois</span>
+              <span>Paie saisie a ce jour</span>
               <strong id="estimatedPay">0,00 EUR</strong>
             </article>
             <article class="metric-card">
@@ -57,7 +57,7 @@
             </div>
             <div class="meter-list">
               <div class="meter-row">
-                <span>Revenus du mois</span>
+                <span>Revenus + paie a ce jour</span>
                 <div class="meter"><i id="incomeBar"></i></div>
                 <strong id="incomeTotal">0,00 EUR</strong>
               </div>
@@ -335,7 +335,7 @@
               Ouvrir le Google Sheet
             </a>
             <button class="secondary-button" id="exportButton" type="button">Exporter les donnees</button>
-            <button class="danger-button" id="resetButton" type="button">Reinitialiser la V0.13</button>
+            <button class="danger-button" id="resetButton" type="button">Reinitialiser la V0.14</button>
           </section>
         </section>
       </main>
@@ -382,6 +382,6 @@
       <li class="empty-state">Aucune saisie pour le moment.</li>
     </template>
 
-    <script src="app.js" defer></script>
+    <script src="app.js?v=014" defer></script>
   </body>
 </html>

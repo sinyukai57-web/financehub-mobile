@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.13";
-const STORAGE_KEY = "financehub-mobile-v013";
+const APP_VERSION = "v0.14";
+const STORAGE_KEY = "financehub-mobile-v014";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v013",
   "financehub-mobile-v012",
   "financehub-mobile-v011",
   "financehub-mobile-v010",
@@ -270,6 +271,11 @@ function currentMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function todayKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 function formatMonthLabel(monthKey) {
   const parsed = new Date(`${monthKey}-01T12:00:00`);
   if (Number.isNaN(parsed.getTime())) return "Mois en cours";
@@ -282,6 +288,11 @@ function formatMonthLabel(monthKey) {
 
 function isInMonth(date, monthKey) {
   return dateSortKey(date).startsWith(`${monthKey}-`);
+}
+
+function isInMonthToDate(date, monthKey) {
+  const key = dateSortKey(date);
+  return key.startsWith(`${monthKey}-`) && key <= todayKey();
 }
 
 function formatMoney(value) {
@@ -397,18 +408,18 @@ function sumPayrollRows(rows) {
 
 function payrollForMonth(monthKey) {
   const payroll = calculatePayroll(state.shifts);
-  return sumPayrollRows(payroll.rows.filter((row) => isInMonth(row.shift.date, monthKey)));
+  return sumPayrollRows(payroll.rows.filter((row) => isInMonthToDate(row.shift.date, monthKey)));
 }
 
 function localExpenseTotal(monthKey = "") {
   return state.expenses
-    .filter((expense) => !monthKey || isInMonth(expense.date, monthKey))
+    .filter((expense) => !monthKey || isInMonthToDate(expense.date, monthKey))
     .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
 }
 
 function advanceWatchTotal(monthKey = "") {
   return state.advances
-    .filter((advance) => advance.status !== "Deduit" && (!monthKey || isInMonth(advance.date, monthKey)))
+    .filter((advance) => advance.status !== "Deduit" && (!monthKey || isInMonthToDate(advance.date, monthKey)))
     .reduce((sum, advance) => sum + Number(advance.amount || 0), 0);
 }
 
@@ -536,9 +547,9 @@ function latestActivities() {
 function renderShifts() {
   const monthKey = currentMonthKey();
   const fullPayroll = calculatePayroll(state.shifts);
-  const monthPayroll = sumPayrollRows(fullPayroll.rows.filter((row) => isInMonth(row.shift.date, monthKey)));
+  const monthPayroll = sumPayrollRows(fullPayroll.rows.filter((row) => isInMonthToDate(row.shift.date, monthKey)));
   $("#shiftMonthTotal").textContent = formatMoney(monthPayroll.net);
-  $("#shiftCount").textContent = `${monthPayroll.rows.length} jours ce mois`;
+  $("#shiftCount").textContent = `${monthPayroll.rows.length} jours a ce jour`;
 
   const rowMap = new Map(fullPayroll.rows.map((row) => [row.shift.id, row]));
   $("#shiftList").innerHTML = state.shifts.length
@@ -600,7 +611,7 @@ function renderAdvances() {
 
 function renderExpenses() {
   const monthKey = currentMonthKey();
-  const monthlyExpenses = state.expenses.filter((expense) => isInMonth(expense.date, monthKey));
+  const monthlyExpenses = state.expenses.filter((expense) => isInMonthToDate(expense.date, monthKey));
   $("#expenseMonthTotal").textContent = formatMoney(localExpenseTotal(monthKey));
   $("#expenseCount").textContent = `${monthlyExpenses.length} ce mois`;
   $("#expenseList").innerHTML = state.expenses.length
