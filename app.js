@@ -1,5 +1,11 @@
-const STORAGE_KEY = "financehub-mobile-v04";
-const LEGACY_STORAGE_KEYS = ["financehub-mobile-v03", "financehub-mobile-v02", "financehub-mobile-v01"];
+const APP_VERSION = "v0.5";
+const STORAGE_KEY = "financehub-mobile-v05";
+const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v04",
+  "financehub-mobile-v03",
+  "financehub-mobile-v02",
+  "financehub-mobile-v01",
+];
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/10XJELK1gXiBho_0YdpGvEzyDOOV_kzbW25C47iku1lw/edit";
 
 const money = new Intl.NumberFormat("fr-FR", {
@@ -24,6 +30,9 @@ const defaultSettings = {
   fixedCharges: 734,
   baseExpenses: 475.13,
   reserveTarget: 1000,
+  syncUrl: "",
+  syncSecret: "",
+  lastSyncedAt: "",
 };
 
 const viewTitles = {
@@ -455,6 +464,161 @@ function renderSettings() {
   $("#settingOtherIncome").value = state.settings.otherIncome;
   $("#settingFixedCharges").value = state.settings.fixedCharges;
   $("#settingBaseExpenses").value = state.settings.baseExpenses;
+  $("#syncUrl").value = state.settings.syncUrl || "";
+  $("#syncSecret").value = state.settings.syncSecret || "";
+  renderSyncStatus();
+}
+
+function syncConfigured() {
+  return Boolean((state.settings.syncUrl || "").trim() && (state.settings.syncSecret || "").trim());
+}
+
+function renderSyncStatus(message, type = "") {
+  const badge = $("#syncBadge");
+  const status = $("#syncStatus");
+  const configured = syncConfigured();
+  badge.textContent = configured ? "Pret" : "A configurer";
+  if (message) {
+    status.textContent = message;
+  } else if (state.settings.lastSyncedAt) {
+    status.textContent = `Derniere synchro: ${new Date(state.settings.lastSyncedAt).toLocaleString("fr-FR")}`;
+  } else {
+    status.textContent = configured
+      ? "La synchro est configuree. Tu peux envoyer ou recevoir les donnees."
+      : "Ajoute l'URL du script Google pour activer la synchronisation.";
+  }
+  status.className = `sync-status${type ? ` is-${type}` : ""}`;
+  $("#pullSyncButton").disabled = !configured;
+  $("#pushSyncButton").disabled = !configured;
+}
+
+function saveSyncForm() {
+  state.settings.syncUrl = $("#syncUrl").value.trim();
+  state.settings.syncSecret = $("#syncSecret").value.trim();
+  saveState();
+  renderSyncStatus("Reglages de synchronisation enregistres.", "ok");
+}
+
+function syncSnapshot() {
+  const { syncSecret, ...safeSettings } = state.settings;
+  return {
+    schemaVersion: 1,
+    appVersion: APP_VERSION,
+    updatedAt: new Date().toISOString(),
+    settings: safeSettings,
+    shifts: state.shifts,
+    advances: state.advances,
+    expenses: state.expenses,
+  };
+}
+
+function applySyncedState(remoteState) {
+  if (!remoteState || typeof remoteState !== "object") {
+    throw new Error("Aucune donnee valide recue.");
+  }
+  const keepSync = {
+    syncUrl: state.settings.syncUrl,
+    syncSecret: state.settings.syncSecret,
+    lastSyncedAt: remoteState.updatedAt || new Date().toISOString(),
+  };
+  state = migrateState({
+    settings: { ...defaultSettings, ...(remoteState.settings || {}), ...keepSync },
+    shifts: remoteState.shifts || [],
+    advances: remoteState.advances || [],
+    expenses: remoteState.expenses || [],
+  });
+  saveState();
+}
+
+function syncUrl(action, callbackName) {
+  const url = new URL(state.settings.syncUrl.trim());
+  url.searchParams.set("action", action);
+  url.searchParams.set("secret", state.settings.syncSecret.trim());
+  url.searchParams.set("callback", callbackName);
+  url.searchParams.set("_", String(Date.now()));
+  return url.toString();
+}
+
+function syncGet(action) {
+  return new Promise((resolve, reject) => {
+    if (!syncConfigured()) {
+      reject(new Error("Synchronisation non configuree."));
+      return;
+    }
+    const callbackName = `financeHubSync_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    const cleanup = () => {
+      script.remove();
+      delete window[callbackName];
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Le script Google ne repond pas."));
+    }, 15000);
+
+    window[callbackName] = (payload) => {
+      window.clearTimeout(timer);
+      cleanup();
+      if (payload && payload.ok) {
+        resolve(payload);
+      } else {
+        reject(new Error(payload?.error || "Erreur de synchronisation."));
+      }
+    };
+
+    script.onerror = () => {
+      window.clearTimeout(timer);
+      cleanup();
+      reject(new Error("Impossible de joindre le script Google."));
+    };
+    script.src = syncUrl(action, callbackName);
+    document.body.appendChild(script);
+  });
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function pullFromSheet() {
+  saveSyncForm();
+  try {
+    renderSyncStatus("Reception depuis Google Sheets...", "busy");
+    const payload = await syncGet("pull");
+    applySyncedState(payload.state);
+    renderAll();
+    renderSyncStatus("Donnees recues depuis Google Sheets.", "ok");
+  } catch (error) {
+    renderSyncStatus(error.message, "error");
+  }
+}
+
+async function pushToSheet() {
+  saveSyncForm();
+  try {
+    renderSyncStatus("Envoi vers Google Sheets...", "busy");
+    const snapshot = syncSnapshot();
+    await fetch(state.settings.syncUrl.trim(), {
+      method: "POST",
+      mode: "no-cors",
+      body: JSON.stringify({
+        action: "push",
+        secret: state.settings.syncSecret.trim(),
+        state: snapshot,
+      }),
+    });
+    await wait(1600);
+    const payload = await syncGet("pull");
+    if (payload.state?.updatedAt !== snapshot.updatedAt) {
+      throw new Error("L'envoi n'a pas encore ete confirme par le Sheet.");
+    }
+    state.settings.lastSyncedAt = snapshot.updatedAt;
+    saveState();
+    renderSettings();
+    renderSyncStatus("Donnees envoyees vers Google Sheets.", "ok");
+  } catch (error) {
+    renderSyncStatus(error.message, "error");
+  }
 }
 
 function emptyHtml() {
@@ -641,6 +805,14 @@ function bindEvents() {
     renderAll();
     setView("dashboard");
   });
+
+  $("#syncForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveSyncForm();
+  });
+
+  $("#pullSyncButton").addEventListener("click", pullFromSheet);
+  $("#pushSyncButton").addEventListener("click", pushToSheet);
 
   $("#exportButton").addEventListener("click", () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });

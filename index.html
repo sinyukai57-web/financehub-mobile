@@ -311,11 +311,31 @@
           </form>
 
           <section class="panel action-panel">
+            <div class="panel-title">
+              <h2>Synchronisation</h2>
+              <span id="syncBadge">A configurer</span>
+            </div>
+            <form class="sync-form" id="syncForm">
+              <label>
+                <span>URL du script Google</span>
+                <input id="syncUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+              </label>
+              <label>
+                <span>Code secret</span>
+                <input id="syncSecret" type="password" autocomplete="off" placeholder="Identique dans Apps Script">
+              </label>
+              <button class="primary-button" type="submit">Enregistrer la synchro</button>
+            </form>
+            <div class="sync-actions">
+              <button class="secondary-button" id="pullSyncButton" type="button">Recevoir du Sheet</button>
+              <button class="secondary-button" id="pushSyncButton" type="button">Envoyer au Sheet</button>
+            </div>
+            <p class="sync-status" id="syncStatus">Ajoute l'URL du script Google pour activer la synchronisation.</p>
             <a class="link-button" href="https://docs.google.com/spreadsheets/d/10XJELK1gXiBho_0YdpGvEzyDOOV_kzbW25C47iku1lw/edit" target="_blank" rel="noreferrer">
               Ouvrir le Google Sheet
             </a>
             <button class="secondary-button" id="exportButton" type="button">Exporter les donnees</button>
-            <button class="danger-button" id="resetButton" type="button">Reinitialiser la V0.4</button>
+            <button class="danger-button" id="resetButton" type="button">Reinitialiser la V0.5</button>
           </section>
         </section>
       </main>
