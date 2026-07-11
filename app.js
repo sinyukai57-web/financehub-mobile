@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.8";
-const STORAGE_KEY = "financehub-mobile-v08";
+const APP_VERSION = "v0.9";
+const STORAGE_KEY = "financehub-mobile-v09";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v08",
   "financehub-mobile-v07",
   "financehub-mobile-v06",
   "financehub-mobile-v05",
@@ -85,28 +86,50 @@ function migrateState(savedState) {
   const cleaned = {
     ...savedState,
     settings,
-    shifts: savedState.shifts.filter((shift) => shift.note !== "Pre-rempli hors week-end"),
+    shifts: savedState.shifts
+      .filter((shift) => shift.note !== "Pre-rempli hors week-end")
+      .map(normalizeShift),
     advances: savedState.advances.map(normalizeAdvance),
+    expenses: savedState.expenses.map(normalizeExpense),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
   LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
   return cleaned;
 }
 
+function normalizeShift(shift) {
+  return {
+    ...shift,
+    date: normalizeDateValue(shift.date),
+    pausePaidMinutes: Number(shift.pausePaidMinutes || 25),
+  };
+}
+
 function normalizeAdvance(advance) {
+  const normalized = {
+    ...advance,
+    date: normalizeDateValue(advance.date),
+  };
   if (
-    Number(advance.amount) === 180 &&
-    advance.date === "2026-07-11" &&
-    advance.status === "Prevu"
+    Number(normalized.amount) === 180 &&
+    normalized.date === "2026-07-11" &&
+    normalized.status === "Prevu"
   ) {
     return {
-      ...advance,
+      ...normalized,
       date: "2026-07-10",
       status: "Recu",
       note: "Recu - a deduire prochaine paie",
     };
   }
-  return advance;
+  return normalized;
+}
+
+function normalizeExpense(expense) {
+  return {
+    ...expense,
+    date: normalizeDateValue(expense.date),
+  };
 }
 
 function createInitialState() {
@@ -155,6 +178,40 @@ function parseAmount(value) {
   return Number(String(value).replace(",", ".")) || 0;
 }
 
+function normalizeDateValue(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const isoMatch = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  const frMatch = text.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if (frMatch) {
+    const day = frMatch[1].padStart(2, "0");
+    const month = frMatch[2].padStart(2, "0");
+    const year = frMatch[3].length === 2 ? `20${frMatch[3]}` : frMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return text;
+}
+
+function parseDate(value) {
+  const normalized = normalizeDateValue(value);
+  const parsed = new Date(`${normalized}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function dateSortKey(value) {
+  const normalized = normalizeDateValue(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : "0000-00-00";
+}
+
 function formatMoney(value) {
   return money.format(value || 0).replace(/\u00a0/g, " ");
 }
@@ -164,10 +221,12 @@ function formatHours(value) {
 }
 
 function formatDate(dateString) {
+  const parsed = parseDate(dateString);
+  if (!parsed) return String(dateString || "Date inconnue");
   return new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
     month: "short",
-  }).format(new Date(`${dateString}T12:00:00`));
+  }).format(parsed);
 }
 
 function timeToMinutes(value) {
@@ -183,7 +242,9 @@ function paidHours(shift) {
 }
 
 function isoWeek(dateString) {
-  const source = new Date(`${dateString}T00:00:00Z`);
+  const normalized = normalizeDateValue(dateString);
+  const source = new Date(`${normalized}T00:00:00Z`);
+  if (Number.isNaN(source.getTime())) return 0;
   const dayNumber = source.getUTCDay() || 7;
   source.setUTCDate(source.getUTCDate() + 4 - dayNumber);
   const yearStart = new Date(Date.UTC(source.getUTCFullYear(), 0, 1));
@@ -196,11 +257,13 @@ function calculatePayroll(shifts) {
   const netRate = settings.netRate / 100;
   const ifmRate = settings.ifmRate / 100;
   const paidLeaveRate = settings.paidLeaveRate / 100;
-  const sorted = [...shifts].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = [...shifts].sort((a, b) => dateSortKey(a.date).localeCompare(dateSortKey(b.date)));
   const weeklyTotals = new Map();
 
   const rows = sorted.map((shift) => {
-    const week = `${new Date(`${shift.date}T12:00:00`).getFullYear()}-${isoWeek(shift.date)}`;
+    const parsedDate = parseDate(shift.date);
+    const year = parsedDate ? parsedDate.getFullYear() : "0000";
+    const week = `${year}-${isoWeek(shift.date)}`;
     const previous = weeklyTotals.get(week) || 0;
     const hours = paidHours(shift);
     const normal = Math.max(0, Math.min(hours, 35 - previous));
@@ -369,7 +432,7 @@ function latestActivities() {
     detail: `${expense.category} - ${formatDate(expense.date)}`,
   }));
   return [...shifts, ...advances, ...expenses]
-    .sort((a, b) => b.date.localeCompare(a.date))
+    .sort((a, b) => dateSortKey(b.date).localeCompare(dateSortKey(a.date)))
     .slice(0, 5);
 }
 
@@ -381,7 +444,7 @@ function renderShifts() {
   const rowMap = new Map(payroll.rows.map((row) => [row.shift.id, row]));
   $("#shiftList").innerHTML = state.shifts.length
     ? [...state.shifts]
-        .sort((a, b) => b.date.localeCompare(a.date))
+        .sort((a, b) => dateSortKey(b.date).localeCompare(dateSortKey(a.date)))
         .map((shift) => {
           const row = rowMap.get(shift.id);
           return `
@@ -415,7 +478,7 @@ function renderAdvances() {
   $("#advanceCount").textContent = `${state.advances.length}`;
   $("#advanceList").innerHTML = state.advances.length
     ? [...state.advances]
-        .sort((a, b) => b.date.localeCompare(a.date))
+        .sort((a, b) => dateSortKey(b.date).localeCompare(dateSortKey(a.date)))
         .map(
           (advance) => `
             <li class="entry-item">
@@ -441,7 +504,7 @@ function renderExpenses() {
   $("#expenseCount").textContent = `${state.expenses.length}`;
   $("#expenseList").innerHTML = state.expenses.length
     ? [...state.expenses]
-        .sort((a, b) => b.date.localeCompare(a.date))
+        .sort((a, b) => dateSortKey(b.date).localeCompare(dateSortKey(a.date)))
         .map(
           (expense) => `
             <li class="entry-item">
@@ -497,9 +560,20 @@ function renderSyncStatus(message, type = "") {
   $("#pushSyncButton").disabled = !configured;
 }
 
+function cleanSyncUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const withoutSpaces = raw.replace(/\s/g, "");
+  if (/^https:\/\/script\.google\.com\/macros\/s\/[^/?#]+$/i.test(withoutSpaces)) {
+    return `${withoutSpaces}/exec`;
+  }
+  return withoutSpaces;
+}
+
 function saveSyncForm(showMessage = true) {
-  state.settings.syncUrl = $("#syncUrl").value.trim();
+  state.settings.syncUrl = cleanSyncUrl($("#syncUrl").value);
   state.settings.syncSecret = $("#syncSecret").value.trim();
+  $("#syncUrl").value = state.settings.syncUrl;
   saveState();
   if (showMessage) {
     renderSyncStatus("Reglages de synchronisation enregistres.", "ok");
@@ -569,7 +643,7 @@ function applySyncedState(remoteState) {
 }
 
 function syncUrl(action, callbackName) {
-  const url = new URL(state.settings.syncUrl.trim());
+  const url = new URL(cleanSyncUrl(state.settings.syncUrl));
   url.searchParams.set("action", action);
   url.searchParams.set("secret", state.settings.syncSecret.trim());
   url.searchParams.set("callback", callbackName);
@@ -579,7 +653,7 @@ function syncUrl(action, callbackName) {
 
 function syncErrorMessage(message) {
   if (/script Google|repond pas|confirme/.test(message)) {
-    return `${message} Dans Apps Script, colle le dernier Code.gs puis fais Deploy > Manage deployments > crayon > Version: New version > Deploy.`;
+    return `${message} Efface puis recolle l'URL complete du script, elle doit finir par /exec. Si l'URL est bonne, redeploie Apps Script en New version.`;
   }
   return message;
 }
@@ -659,7 +733,7 @@ async function pushToSheet() {
   try {
     renderSyncStatus("Envoi vers Google Sheets...", "busy");
     const snapshot = syncSnapshot();
-    await fetch(state.settings.syncUrl.trim(), {
+    await fetch(cleanSyncUrl(state.settings.syncUrl), {
       method: "POST",
       mode: "no-cors",
       body: JSON.stringify({
