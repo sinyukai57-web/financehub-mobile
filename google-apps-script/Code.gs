@@ -49,7 +49,7 @@ function doPost(e) {
   if (body.action !== "push") {
     throw new Error("Action POST inconnue.");
   }
-  saveState_(body.state);
+  saveState_(storageState_(body.state));
   writeReadableTabs_(body.state);
   writeMainShifts_(body.state);
   writeMainAdvances_(body.state);
@@ -62,6 +62,14 @@ function doPost(e) {
   });
 }
 
+function storageState_(state) {
+  const stored = Object.assign({}, state || {});
+  stored.shifts = localRows_(stored.shifts);
+  stored.advances = localRows_(stored.advances);
+  stored.expenses = localRows_(stored.expenses);
+  return stored;
+}
+
 function mergeStates_(sheetState, savedState) {
   if (!savedState) {
     return sheetState;
@@ -71,10 +79,16 @@ function mergeStates_(sheetState, savedState) {
     appVersion: savedState.appVersion || sheetState.appVersion || "merged",
     updatedAt: newestDate_(sheetState.updatedAt, savedState.updatedAt),
     settings: Object.assign({}, savedState.settings || {}, sheetState.settings || {}),
-    shifts: mergeRows_(sheetState.shifts || [], savedState.shifts || [], shiftKey_),
-    advances: mergeRows_(sheetState.advances || [], savedState.advances || [], advanceKey_),
-    expenses: mergeRows_(sheetState.expenses || [], savedState.expenses || [], expenseKey_),
+    shifts: mergeRows_(sheetState.shifts || [], localRows_(savedState.shifts), shiftKey_),
+    advances: mergeRows_(sheetState.advances || [], localRows_(savedState.advances), advanceKey_),
+    expenses: mergeRows_(sheetState.expenses || [], localRows_(savedState.expenses), expenseKey_),
   };
+}
+
+function localRows_(rows) {
+  return (rows || []).filter(function (row) {
+    return !String(row.id || "").startsWith("sheet-");
+  });
 }
 
 function newestDate_(a, b) {

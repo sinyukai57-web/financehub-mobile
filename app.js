@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.19";
-const STORAGE_KEY = "financehub-mobile-v019";
+const APP_VERSION = "v0.20";
+const STORAGE_KEY = "financehub-mobile-v020";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v019",
   "financehub-mobile-v018",
   "financehub-mobile-v017",
   "financehub-mobile-v016",
@@ -719,9 +720,9 @@ function syncSnapshot() {
     appVersion: APP_VERSION,
     updatedAt: new Date().toISOString(),
     settings: normalizeSettings(safeSettings),
-    shifts: state.shifts.filter((shift) => shift.date),
-    advances: state.advances.filter((advance) => advance.date),
-    expenses: state.expenses.filter((expense) => expense.date),
+    shifts: localOnlyRows(state.shifts).filter((shift) => shift.date),
+    advances: localOnlyRows(state.advances).filter((advance) => advance.date),
+    expenses: localOnlyRows(state.expenses).filter((expense) => expense.date),
   };
 }
 
@@ -735,6 +736,10 @@ function mergeRowsByKey(primaryRows, secondaryRows, keyFn) {
     }
   });
   return Array.from(rows.values());
+}
+
+function localOnlyRows(rows = []) {
+  return rows.filter((row) => !String(row.id || "").startsWith("sheet-"));
 }
 
 function shiftMergeKey(shift) {
@@ -796,9 +801,9 @@ function applySyncedState(remoteState) {
   };
   state = migrateState({
     settings: normalizeSettings({ ...state.settings, ...(remoteState.settings || {}), ...keepSync }),
-    shifts: mergeRowsByKey(remoteState.shifts || [], state.shifts || [], shiftMergeKey),
-    advances: mergeRowsByKey(remoteState.advances || [], state.advances || [], advanceMergeKey),
-    expenses: mergeRowsByKey(remoteState.expenses || [], state.expenses || [], expenseMergeKey),
+    shifts: mergeRowsByKey(remoteState.shifts || [], localOnlyRows(state.shifts), shiftMergeKey),
+    advances: mergeRowsByKey(remoteState.advances || [], localOnlyRows(state.advances), advanceMergeKey),
+    expenses: mergeRowsByKey(remoteState.expenses || [], localOnlyRows(state.expenses), expenseMergeKey),
   });
   saveState();
 }
