@@ -32,6 +32,9 @@ function doPost(e) {
   }
   saveState_(body.state);
   writeReadableTabs_(body.state);
+  writeMainShifts_(body.state);
+  writeMainAdvances_(body.state);
+  writeMainAdvanceRevenues_(body.state);
   writeMainExpenses_(body.state);
   return output_({
     ok: true,
@@ -246,6 +249,162 @@ function writeMainExpenses_(state) {
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
 }
 
+function writeMainShifts_(state) {
+  const sheet = spreadsheet_().getSheetByName("Heures Adecco");
+  if (!sheet) {
+    return;
+  }
+
+  removeMarkedRows_(sheet, 6, 27, "FinanceHub Mobile ID:");
+  const shifts = (state.shifts || []).filter(function (shift) {
+    return shift.date && !String(shift.id || "").startsWith("sheet-hours-");
+  });
+  if (!shifts.length) {
+    return;
+  }
+
+  const settings = Object.assign(importSettings_(), state.settings || {});
+  const rows = buildShiftRows_(shifts, settings);
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 27).setValues(rows);
+}
+
+function writeMainAdvances_(state) {
+  const sheet = spreadsheet_().getSheetByName("Acomptes");
+  if (!sheet) {
+    return;
+  }
+
+  removeMarkedRows_(sheet, 11, 10, "FinanceHub Mobile ID:");
+  const advances = (state.advances || []).filter(function (advance) {
+    return advance.date && !String(advance.id || "").startsWith("sheet-advance-");
+  });
+  if (!advances.length) {
+    return;
+  }
+
+  const rows = advances.map(function (advance) {
+    const isDeducted = advance.status === "Deduit";
+    const amount = Number(advance.amount || 0);
+    return [
+      advance.date || "",
+      "Adecco France",
+      monthLabel_(advance.date),
+      amount,
+      isDeducted ? "Oui" : "Non",
+      isDeducted ? "Deduit via app" : "A deduire prochaine paie",
+      isDeducted ? 0 : amount,
+      advance.status || "Recu",
+      isDeducted ? "Deja deduit" : "A surveiller",
+      [advance.note || "Acompte saisi depuis l'app", "FinanceHub Mobile ID: " + (advance.id || "")].join(" - "),
+    ];
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 10).setValues(rows);
+}
+
+function writeMainAdvanceRevenues_(state) {
+  const sheet = spreadsheet_().getSheetByName("Revenus");
+  if (!sheet) {
+    return;
+  }
+
+  removeMarkedRows_(sheet, 6, 8, "FinanceHub Mobile ID:");
+  const advances = (state.advances || []).filter(function (advance) {
+    return advance.date && advance.status !== "Prevu" && !String(advance.id || "").startsWith("sheet-advance-");
+  });
+  if (!advances.length) {
+    return;
+  }
+
+  const rows = advances.map(function (advance) {
+    return [
+      advance.date || "",
+      monthStart_(advance.date),
+      "Adecco France - acompte",
+      "Salaire",
+      Number(advance.amount || 0),
+      advance.status === "Deduit" || advance.status === "Recu" ? "Oui" : "Prevu",
+      "Revolut",
+      [advance.note || "Acompte saisi depuis l'app", "FinanceHub Mobile ID: " + (advance.id || "")].join(" - "),
+    ];
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
+}
+
+function removeMarkedRows_(sheet, firstDataRow, markerColumn, marker) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < firstDataRow) {
+    return;
+  }
+  const values = sheet.getRange(firstDataRow, markerColumn, lastRow - firstDataRow + 1, 1).getDisplayValues();
+  for (let index = values.length - 1; index >= 0; index--) {
+    if (String(values[index][0] || "").indexOf(marker) >= 0) {
+      sheet.deleteRow(index + firstDataRow);
+    }
+  }
+}
+
+function buildShiftRows_(shifts, settings) {
+  const weeklyTotals = {};
+  return shifts
+    .slice()
+    .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })
+    .map(function (shift) {
+      const hours = paidHours_(shift);
+      const week = weekNumber_(shift.date);
+      const weekKey = String(shift.date).slice(0, 4) + "-" + week;
+      const previous = weeklyTotals[weekKey] || 0;
+      const normal = Math.max(0, Math.min(hours, 35 - previous));
+      const afterNormal = Math.max(0, hours - normal);
+      const usedBeforeOt50 = Math.max(35, previous);
+      const ot25 = Math.max(0, Math.min(afterNormal, 43 - usedBeforeOt50));
+      const ot50 = Math.max(0, hours - normal - ot25);
+      weeklyTotals[weekKey] = previous + hours;
+
+      const panier = shift.panier ? Number(settings.panier || 0) : 0;
+      const habillage = shift.habillage ? Number(settings.habillage || 0) : 0;
+      const grossHours =
+        normal * Number(settings.hourlyRate || 0) +
+        ot25 * Number(settings.hourlyRate || 0) * 1.25 +
+        ot50 * Number(settings.hourlyRate || 0) * 1.5;
+      const grossPremiums = panier + habillage;
+      const grossBase = grossHours + grossPremiums;
+      const ifm = grossBase * (Number(settings.ifmRate || 10) / 100);
+      const paidLeave = (grossBase + ifm) * (Number(settings.paidLeaveRate || 10) / 100);
+      const grossTotal = grossBase + ifm + paidLeave;
+      const net = grossTotal * (Number(settings.netRate || 80.168) / 100);
+
+      return [
+        shift.date || "",
+        weekday_(shift.date),
+        shift.site || "Mission Adecco",
+        shift.start || "",
+        shift.end || "",
+        Number(shift.pausePaidMinutes || 0) / 60,
+        hours,
+        monthStart_(shift.date),
+        week,
+        weeklyTotals[weekKey],
+        normal,
+        ot25,
+        ot50,
+        panier,
+        habillage,
+        0,
+        0,
+        grossHours,
+        grossPremiums,
+        grossBase,
+        ifm,
+        paidLeave,
+        grossTotal,
+        net,
+        0,
+        net,
+        [shift.note || "Saisi depuis l'app mobile", "FinanceHub Mobile ID: " + (shift.id || "")].join(" - "),
+      ];
+    });
+}
+
 function writeTable_(name, headers, rows) {
   const sheet = sheet_(name);
   const values = [headers].concat(rows.length ? rows : [["", "", "", "", "", "", "", ""].slice(0, headers.length)]);
@@ -361,6 +520,39 @@ function toIsoDate_(value) {
 function monthStart_(date) {
   const iso = toIsoDate_(date);
   return iso ? iso.slice(0, 7) + "-01" : "";
+}
+
+function monthLabel_(date) {
+  const iso = toIsoDate_(date);
+  return iso ? iso.slice(5, 7) + "/" + iso.slice(0, 4) : "";
+}
+
+function weekday_(date) {
+  const labels = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
+  const parsed = new Date(toIsoDate_(date) + "T12:00:00");
+  return labels[parsed.getDay()] || "";
+}
+
+function timeToMinutes_(value) {
+  const parts = String(value || "00:00").split(":");
+  return Number(parts[0] || 0) * 60 + Number(parts[1] || 0);
+}
+
+function paidHours_(shift) {
+  const start = timeToMinutes_(shift.start);
+  let end = timeToMinutes_(shift.end);
+  if (end < start) {
+    end += 24 * 60;
+  }
+  return Math.max(0, (end - start) / 60);
+}
+
+function weekNumber_(date) {
+  const parsed = new Date(toIsoDate_(date) + "T00:00:00Z");
+  const dayNumber = parsed.getUTCDay() || 7;
+  parsed.setUTCDate(parsed.getUTCDate() + 4 - dayNumber);
+  const yearStart = new Date(Date.UTC(parsed.getUTCFullYear(), 0, 1));
+  return Math.ceil(((parsed - yearStart) / 86400000 + 1) / 7);
 }
 
 function normalizeStatus_(value) {
