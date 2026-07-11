@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.17";
-const STORAGE_KEY = "financehub-mobile-v017";
+const APP_VERSION = "v0.18";
+const STORAGE_KEY = "financehub-mobile-v018";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v017",
   "financehub-mobile-v016",
   "financehub-mobile-v015",
   "financehub-mobile-v014",
@@ -37,7 +38,7 @@ const defaultSettings = {
   paidLeaveRate: 10,
   panier: 4.35,
   habillage: 0.75,
-  cash: 237.95,
+  cash: 128.12,
   otherIncome: 982.89,
   fixedCharges: 734,
   baseExpenses: 475.13,
@@ -84,9 +85,6 @@ function loadState() {
 
 function migrateState(savedState) {
   const settings = normalizeSettings(savedState.settings);
-  if (settings.cash === 57.95) {
-    settings.cash = 237.95;
-  }
   if (settings.otherIncome === 1669.8) {
     settings.otherIncome = 982.89;
   }

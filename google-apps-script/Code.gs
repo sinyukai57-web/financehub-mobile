@@ -70,7 +70,7 @@ function mergeStates_(sheetState, savedState) {
     schemaVersion: 1,
     appVersion: savedState.appVersion || sheetState.appVersion || "merged",
     updatedAt: newestDate_(sheetState.updatedAt, savedState.updatedAt),
-    settings: Object.assign({}, sheetState.settings || {}, savedState.settings || {}),
+    settings: Object.assign({}, savedState.settings || {}, sheetState.settings || {}),
     shifts: mergeRows_(sheetState.shifts || [], savedState.shifts || [], shiftKey_),
     advances: mergeRows_(sheetState.advances || [], savedState.advances || [], advanceKey_),
     expenses: mergeRows_(sheetState.expenses || [], savedState.expenses || [], expenseKey_),
@@ -299,7 +299,7 @@ function writeMainExpenses_(state) {
   }
 
   const mobileExpenses = (state.expenses || []).filter(function (expense) {
-    return expense.date && !String(expense.id || "").startsWith("sheet-expense-");
+    return expense.date && !String(expense.id || "").startsWith("sheet-");
   });
   if (!mobileExpenses.length) {
     return;
@@ -512,8 +512,30 @@ function importSettings_() {
     paidLeaveRate: parseNumber_(map["Conges payes"], 10),
     panier: parseNumber_(map["Prime panier par defaut"], 4.35),
     habillage: parseNumber_(map["Prime habillage par defaut"], 0.75),
+    cash: dashboardAmount_("Liquidites disponibles", accountCash_()),
+    otherIncome: dashboardAmount_("Revenus a venir", 0),
+    fixedCharges: dashboardAmount_("Charges fixes a venir", 0),
+    baseExpenses: dashboardAmount_("Depenses deja passees / info", 0),
     reserveTarget: parseNumber_(map["Reserve securite cible"], 1000),
   };
+}
+
+function dashboardAmount_(label, fallback) {
+  const values = rows_("Tableau de bord", 4, 40, 2);
+  for (let index = 0; index < values.length; index++) {
+    if (String(values[index][0] || "").trim() === label) {
+      return parseNumber_(values[index][1], fallback);
+    }
+  }
+  return fallback;
+}
+
+function accountCash_() {
+  return rows_("Comptes", 6, 100, 4).reduce(function (sum, row) {
+    return String(row[3] || "").toLowerCase() === "oui"
+      ? sum + parseNumber_(row[2], 0)
+      : sum;
+  }, 0);
 }
 
 function importShifts_() {
@@ -559,7 +581,7 @@ function importAdvances_() {
 }
 
 function importExpenses_() {
-  const mainExpenses = rows_("Depenses variables", 6, 1000, 9)
+  return rows_("Depenses variables", 6, 1000, 9)
     .filter(function (row) { return row[0] && row[4]; })
     .map(function (row, index) {
       const date = toIsoDate_(row[0]);
@@ -575,25 +597,6 @@ function importExpenses_() {
       };
     })
     .filter(function (row) { return row; });
-
-  const mobileExpenses = rows_("Mobile - Depenses", 2, 1000, 4)
-    .filter(function (row) { return row[0] && row[1]; })
-    .map(function (row, index) {
-      const date = toIsoDate_(row[0]);
-      if (!isIsoDate_(date)) {
-        return null;
-      }
-      return {
-        id: "sheet-mobile-expense-" + index + "-" + row[0],
-        date: date,
-        amount: parseNumber_(row[1], 0),
-        category: row[2] || "Autre",
-        note: row[3] || "",
-      };
-    })
-    .filter(function (row) { return row; });
-
-  return mergeRows_(mainExpenses, mobileExpenses, expenseKey_);
 }
 
 function rows_(name, startRow, maxRows, columns) {
