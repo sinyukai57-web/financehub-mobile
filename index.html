@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0f766e">
     <title>FinanceHub Mobile</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="styles.css?v=016">
+    <link rel="stylesheet" href="styles.css?v=017">
   </head>
   <body>
     <div class="app-shell">
@@ -26,27 +26,27 @@
       <main class="app-main">
         <section class="view is-active" data-view="dashboard">
           <div class="hero-balance">
-            <span>Solde estime fin de mois</span>
+            <span>Solde actuel du compte</span>
             <strong id="availableAfter">0,00 EUR</strong>
-            <small id="dashboardState">Solde actuel + revenus du mois - sorties du mois</small>
+            <small id="dashboardState">Prevision fin de mois separee de la paie Adecco</small>
           </div>
 
           <div class="metric-grid">
             <article class="metric-card">
-              <span>Paie saisie a ce jour</span>
+              <span>Paie future apres acomptes</span>
               <strong id="estimatedPay">0,00 EUR</strong>
             </article>
             <article class="metric-card">
-              <span>Acomptes du mois</span>
+              <span>Acomptes a deduire</span>
               <strong id="advanceWatch">0,00 EUR</strong>
             </article>
             <article class="metric-card">
-              <span>Sorties du mois</span>
+              <span>Charges restantes</span>
               <strong id="outgoingTotal">0,00 EUR</strong>
             </article>
             <article class="metric-card">
-              <span>Investissement prudent</span>
-              <strong id="investSafe">0,00 EUR</strong>
+              <span>Depenses saisies</span>
+              <strong id="monthExpenses">0,00 EUR</strong>
             </article>
           </div>
 
@@ -57,12 +57,12 @@
             </div>
             <div class="meter-list">
               <div class="meter-row">
-                <span>Revenus + paie a ce jour</span>
+                <span>Revenus hors paie Adecco</span>
                 <div class="meter"><i id="incomeBar"></i></div>
                 <strong id="incomeTotal">0,00 EUR</strong>
               </div>
               <div class="meter-row">
-                <span>Sorties du mois</span>
+                <span>Charges restantes</span>
                 <div class="meter"><i id="outgoingBar"></i></div>
                 <strong id="outgoingTotalBar">0,00 EUR</strong>
               </div>
@@ -293,7 +293,7 @@
                 <input id="settingOtherIncome" type="number" step="0.01" min="0">
               </label>
               <label>
-                <span>Charges fixes</span>
+                <span>Charges restantes</span>
                 <input id="settingFixedCharges" type="number" step="0.01" min="0">
               </label>
             </div>
@@ -335,7 +335,7 @@
               Ouvrir le Google Sheet
             </a>
             <button class="secondary-button" id="exportButton" type="button">Exporter les donnees</button>
-            <button class="danger-button" id="resetButton" type="button">Reinitialiser la V0.16</button>
+            <button class="danger-button" id="resetButton" type="button">Reinitialiser la V0.17</button>
           </section>
         </section>
       </main>
@@ -382,6 +382,6 @@
       <li class="empty-state">Aucune saisie pour le moment.</li>
     </template>
 
-    <script src="app.js?v=016" defer></script>
+    <script src="app.js?v=017" defer></script>
   </body>
 </html>

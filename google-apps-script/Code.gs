@@ -559,7 +559,7 @@ function importAdvances_() {
 }
 
 function importExpenses_() {
-  return rows_("Depenses variables", 6, 700, 9)
+  const mainExpenses = rows_("Depenses variables", 6, 1000, 9)
     .filter(function (row) { return row[0] && row[4]; })
     .map(function (row, index) {
       const date = toIsoDate_(row[0]);
@@ -575,6 +575,25 @@ function importExpenses_() {
       };
     })
     .filter(function (row) { return row; });
+
+  const mobileExpenses = rows_("Mobile - Depenses", 2, 1000, 4)
+    .filter(function (row) { return row[0] && row[1]; })
+    .map(function (row, index) {
+      const date = toIsoDate_(row[0]);
+      if (!isIsoDate_(date)) {
+        return null;
+      }
+      return {
+        id: "sheet-mobile-expense-" + index + "-" + row[0],
+        date: date,
+        amount: parseNumber_(row[1], 0),
+        category: row[2] || "Autre",
+        note: row[3] || "",
+      };
+    })
+    .filter(function (row) { return row; });
+
+  return mergeRows_(mainExpenses, mobileExpenses, expenseKey_);
 }
 
 function rows_(name, startRow, maxRows, columns) {

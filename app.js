@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.16";
-const STORAGE_KEY = "financehub-mobile-v016";
+const APP_VERSION = "v0.17";
+const STORAGE_KEY = "financehub-mobile-v017";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v016",
   "financehub-mobile-v015",
   "financehub-mobile-v014",
   "financehub-mobile-v013",
@@ -434,15 +435,29 @@ function advanceRemainTotal() {
 function dashboardTotals() {
   const monthKey = currentMonthKey();
   const payroll = payrollForMonth(monthKey);
+  const advanceDeduction = advanceWatchTotal(monthKey);
+  const payrollAfterAdvances = Math.max(0, payroll.net - advanceDeduction);
   const expenses = localExpenseTotal(monthKey);
-  const outgoing = state.settings.fixedCharges + expenses;
-  const income = state.settings.otherIncome + payroll.net;
-  const availableAfter = state.settings.cash + income - outgoing;
+  const chargesRemaining = state.settings.fixedCharges;
+  const income = state.settings.otherIncome;
+  const projectedEndOfMonth = state.settings.cash + income - chargesRemaining;
   const investSafe = Math.max(
     0,
-    Math.min(income * 0.05, availableAfter - state.settings.reserveTarget),
+    Math.min(income * 0.05, projectedEndOfMonth - state.settings.reserveTarget),
   );
-  return { monthKey, payroll, expenses, outgoing, income, availableAfter, investSafe };
+  return {
+    monthKey,
+    payroll,
+    payrollAfterAdvances,
+    advanceDeduction,
+    expenses,
+    chargesRemaining,
+    outgoing: chargesRemaining,
+    income,
+    currentCash: state.settings.cash,
+    projectedEndOfMonth,
+    investSafe,
+  };
 }
 
 function renderAll() {
@@ -455,35 +470,36 @@ function renderAll() {
 
 function renderDashboard() {
   const totals = dashboardTotals();
-  const watch = advanceWatchTotal(totals.monthKey);
+  const watch = totals.advanceDeduction;
 
   $("#monthLabel").textContent = formatMonthLabel(totals.monthKey);
-  $("#availableAfter").textContent = formatMoney(totals.availableAfter);
-  $("#estimatedPay").textContent = formatMoney(totals.payroll.net);
+  $("#availableAfter").textContent = formatMoney(totals.currentCash);
+  $("#dashboardState").textContent = `Prevision fin de mois: ${formatMoney(totals.projectedEndOfMonth)} hors paie Adecco du mois`;
+  $("#estimatedPay").textContent = formatMoney(totals.payrollAfterAdvances);
   $("#advanceWatch").textContent = formatMoney(watch);
-  $("#outgoingTotal").textContent = formatMoney(totals.outgoing);
-  $("#investSafe").textContent = formatMoney(totals.investSafe);
+  $("#outgoingTotal").textContent = formatMoney(totals.chargesRemaining);
+  $("#monthExpenses").textContent = formatMoney(totals.expenses);
   $("#incomeTotal").textContent = formatMoney(totals.income);
-  $("#outgoingTotalBar").textContent = formatMoney(totals.outgoing);
+  $("#outgoingTotalBar").textContent = formatMoney(totals.chargesRemaining);
   $("#reserveValue").textContent = formatMoney(state.settings.reserveTarget);
 
-  const max = Math.max(totals.income, totals.outgoing, state.settings.reserveTarget, 1);
+  const max = Math.max(totals.income, totals.chargesRemaining, state.settings.reserveTarget, 1);
   $("#incomeBar").style.width = `${Math.min(100, (totals.income / max) * 100)}%`;
-  $("#outgoingBar").style.width = `${Math.min(100, (totals.outgoing / max) * 100)}%`;
+  $("#outgoingBar").style.width = `${Math.min(100, (totals.chargesRemaining / max) * 100)}%`;
   $("#reserveBar").style.width = `${Math.min(100, (state.settings.reserveTarget / max) * 100)}%`;
 
   const watchItems = [];
   if (watch > 0) {
     watchItems.push({
-      title: "Acompte du mois a verifier",
+      title: "Acompte a deduire",
       value: formatMoney(watch),
-      detail: "Non deduit dans le mois affiche",
+      detail: "Deduit de la prochaine paie, pas une charge immediate",
     });
   }
-  if (totals.availableAfter < state.settings.reserveTarget) {
+  if (totals.projectedEndOfMonth < state.settings.reserveTarget) {
     watchItems.push({
       title: "Reserve non couverte",
-      value: formatMoney(state.settings.reserveTarget - totals.availableAfter),
+      value: formatMoney(state.settings.reserveTarget - totals.projectedEndOfMonth),
       detail: "Priorite au cash",
     });
   }
