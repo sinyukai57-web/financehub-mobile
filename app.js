@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.18";
-const STORAGE_KEY = "financehub-mobile-v018";
+const APP_VERSION = "v0.19";
+const STORAGE_KEY = "financehub-mobile-v019";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v018",
   "financehub-mobile-v017",
   "financehub-mobile-v016",
   "financehub-mobile-v015",
@@ -727,7 +728,12 @@ function syncSnapshot() {
 function mergeRowsByKey(primaryRows, secondaryRows, keyFn) {
   const rows = new Map();
   primaryRows.forEach((row) => rows.set(keyFn(row), row));
-  secondaryRows.forEach((row) => rows.set(keyFn(row), row));
+  secondaryRows.forEach((row) => {
+    const key = keyFn(row);
+    if (!rows.has(key)) {
+      rows.set(key, row);
+    }
+  });
   return Array.from(rows.values());
 }
 
@@ -740,8 +746,6 @@ function advanceMergeKey(advance) {
     "advance",
     advance.date,
     Number(advance.amount || 0).toFixed(2),
-    advance.status,
-    advance.note || "",
   ].join("|");
 }
 

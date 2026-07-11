@@ -101,7 +101,9 @@ function mergeRows_(first, second, keyFn) {
   const map = {};
   first.concat(second).forEach(function (item) {
     const key = keyFn(item);
-    map[key] = item;
+    if (!map[key]) {
+      map[key] = item;
+    }
   });
   return Object.keys(map).map(function (key) { return map[key]; });
 }
@@ -111,7 +113,7 @@ function shiftKey_(shift) {
 }
 
 function advanceKey_(advance) {
-  return ["advance", advance.date, Number(advance.amount || 0).toFixed(2), advance.status, advance.note].join("|");
+  return ["advance", advance.date, Number(advance.amount || 0).toFixed(2)].join("|");
 }
 
 function expenseKey_(expense) {
@@ -348,7 +350,7 @@ function writeMainAdvances_(state) {
 
   removeMarkedRows_(sheet, 11, 10, "FinanceHub Mobile ID:");
   const advances = (state.advances || []).filter(function (advance) {
-    return advance.date && !String(advance.id || "").startsWith("sheet-advance-");
+    return advance.date && !String(advance.id || "").startsWith("sheet-");
   });
   if (!advances.length) {
     return;
@@ -381,7 +383,7 @@ function writeMainAdvanceRevenues_(state) {
 
   removeMarkedRows_(sheet, 6, 8, "FinanceHub Mobile ID:");
   const advances = (state.advances || []).filter(function (advance) {
-    return advance.date && advance.status !== "Prevu" && !String(advance.id || "").startsWith("sheet-advance-");
+    return advance.date && advance.status !== "Prevu" && !String(advance.id || "").startsWith("sheet-");
   });
   if (!advances.length) {
     return;
@@ -562,7 +564,7 @@ function importShifts_() {
 }
 
 function importAdvances_() {
-  return rows_("Acomptes", 11, 200, 10)
+  const advances = rows_("Acomptes", 11, 200, 10)
     .filter(function (row) { return row[0]; })
     .map(function (row, index) {
       const date = toIsoDate_(row[0]);
@@ -578,6 +580,8 @@ function importAdvances_() {
       };
     })
     .filter(function (row) { return row; });
+
+  return mergeRows_(advances, [], advanceKey_);
 }
 
 function importExpenses_() {
