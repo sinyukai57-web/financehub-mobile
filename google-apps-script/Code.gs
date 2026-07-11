@@ -128,12 +128,23 @@ function sheet_(name) {
 
 function loadState_() {
   const sheet = spreadsheet_().getSheetByName(SYNC_SHEET_NAME);
-  if (!sheet || sheet.getLastRow() < 5) {
+  if (!sheet || sheet.getLastRow() < 6) {
     return null;
   }
-  const values = sheet.getRange(5, 2, Math.max(1, sheet.getLastRow() - 4), 1).getValues();
-  const json = values.map(function (row) { return row[0] || ""; }).join("");
-  return json ? JSON.parse(json) : null;
+  const values = sheet.getRange(6, 2, Math.max(1, sheet.getLastRow() - 5), 1).getValues();
+  const json = values.map(function (row) { return row[0] || ""; }).join("").trim();
+  if (!json) {
+    return null;
+  }
+  const jsonStart = json.indexOf("{");
+  if (jsonStart < 0) {
+    return null;
+  }
+  try {
+    return JSON.parse(json.slice(jsonStart));
+  } catch (error) {
+    return null;
+  }
 }
 
 function saveState_(state) {
