@@ -512,9 +512,22 @@ function parseNumber_(value, fallback) {
 }
 
 function toIsoDate_(value) {
-  const text = String(value || "");
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  }
+  const text = String(value || "").trim();
   const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return match ? match[0] : text;
+  if (match) {
+    return match[0];
+  }
+  const frenchMatch = text.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (frenchMatch) {
+    const day = frenchMatch[1].padStart(2, "0");
+    const month = frenchMatch[2].padStart(2, "0");
+    const year = frenchMatch[3].length === 2 ? "20" + frenchMatch[3] : frenchMatch[3];
+    return year + "-" + month + "-" + day;
+  }
+  return text;
 }
 
 function monthStart_(date) {

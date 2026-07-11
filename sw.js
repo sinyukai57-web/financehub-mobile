@@ -1,4 +1,4 @@
-const CACHE_NAME = "financehub-mobile-v06";
+const CACHE_NAME = "financehub-mobile-v07";
 const ASSETS = [
   "./",
   "./index.html",

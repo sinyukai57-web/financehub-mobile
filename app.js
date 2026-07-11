@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.6";
-const STORAGE_KEY = "financehub-mobile-v06";
+const APP_VERSION = "v0.7";
+const STORAGE_KEY = "financehub-mobile-v07";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v06",
   "financehub-mobile-v05",
   "financehub-mobile-v04",
   "financehub-mobile-v03",
@@ -46,6 +47,7 @@ const viewTitles = {
 
 let state = loadState();
 let autoSyncTimer = null;
+let autoPullTimer = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -494,11 +496,13 @@ function renderSyncStatus(message, type = "") {
   $("#pushSyncButton").disabled = !configured;
 }
 
-function saveSyncForm() {
+function saveSyncForm(showMessage = true) {
   state.settings.syncUrl = $("#syncUrl").value.trim();
   state.settings.syncSecret = $("#syncSecret").value.trim();
   saveState();
-  renderSyncStatus("Reglages de synchronisation enregistres.", "ok");
+  if (showMessage) {
+    renderSyncStatus("Reglages de synchronisation enregistres.", "ok");
+  }
 }
 
 function syncSnapshot() {
@@ -514,6 +518,37 @@ function syncSnapshot() {
   };
 }
 
+function mergeRowsByKey(primaryRows, secondaryRows, keyFn) {
+  const rows = new Map();
+  primaryRows.forEach((row) => rows.set(keyFn(row), row));
+  secondaryRows.forEach((row) => rows.set(keyFn(row), row));
+  return Array.from(rows.values());
+}
+
+function shiftMergeKey(shift) {
+  return ["shift", shift.date, shift.start, shift.end, String(shift.site || "").toLowerCase()].join("|");
+}
+
+function advanceMergeKey(advance) {
+  return [
+    "advance",
+    advance.date,
+    Number(advance.amount || 0).toFixed(2),
+    advance.status,
+    advance.note || "",
+  ].join("|");
+}
+
+function expenseMergeKey(expense) {
+  return [
+    "expense",
+    expense.date,
+    Number(expense.amount || 0).toFixed(2),
+    expense.category,
+    expense.note || "",
+  ].join("|");
+}
+
 function applySyncedState(remoteState) {
   if (!remoteState || typeof remoteState !== "object") {
     throw new Error("Aucune donnee valide recue.");
@@ -524,10 +559,10 @@ function applySyncedState(remoteState) {
     lastSyncedAt: remoteState.updatedAt || new Date().toISOString(),
   };
   state = migrateState({
-    settings: { ...defaultSettings, ...(remoteState.settings || {}), ...keepSync },
-    shifts: remoteState.shifts || [],
-    advances: remoteState.advances || [],
-    expenses: remoteState.expenses || [],
+    settings: { ...defaultSettings, ...state.settings, ...(remoteState.settings || {}), ...keepSync },
+    shifts: mergeRowsByKey(remoteState.shifts || [], state.shifts || [], shiftMergeKey),
+    advances: mergeRowsByKey(remoteState.advances || [], state.advances || [], advanceMergeKey),
+    expenses: mergeRowsByKey(remoteState.expenses || [], state.expenses || [], expenseMergeKey),
   });
   saveState();
 }
@@ -539,6 +574,13 @@ function syncUrl(action, callbackName) {
   url.searchParams.set("callback", callbackName);
   url.searchParams.set("_", String(Date.now()));
   return url.toString();
+}
+
+function syncErrorMessage(message) {
+  if (/script Google|repond pas|confirme/.test(message)) {
+    return `${message} Dans Apps Script, colle le dernier Code.gs puis fais Deploy > Manage deployments > crayon > Version: New version > Deploy.`;
+  }
+  return message;
 }
 
 function syncGet(action) {
@@ -591,21 +633,28 @@ function queueAutoPush(reason = "Modification locale") {
   }, 600);
 }
 
-async function pullFromSheet() {
-  saveSyncForm();
+function queueAutoPull() {
+  if (!syncConfigured()) return;
+  window.clearTimeout(autoPullTimer);
+  autoPullTimer = window.setTimeout(() => pullFromSheet({ silent: true }), 1200);
+}
+
+async function pullFromSheet(options = {}) {
+  const silent = Boolean(options.silent);
+  saveSyncForm(!silent);
   try {
-    renderSyncStatus("Reception depuis Google Sheets...", "busy");
+    renderSyncStatus(silent ? "Verification du Sheet..." : "Reception depuis Google Sheets...", "busy");
     const payload = await syncGet("pull");
     applySyncedState(payload.state);
     renderAll();
-    renderSyncStatus("Donnees recues depuis Google Sheets.", "ok");
+    renderSyncStatus(silent ? "Synchro automatique terminee." : "Donnees recues depuis Google Sheets.", "ok");
   } catch (error) {
-    renderSyncStatus(error.message, "error");
+    renderSyncStatus(syncErrorMessage(error.message), "error");
   }
 }
 
 async function pushToSheet() {
-  saveSyncForm();
+  saveSyncForm(false);
   try {
     renderSyncStatus("Envoi vers Google Sheets...", "busy");
     const snapshot = syncSnapshot();
@@ -623,12 +672,13 @@ async function pushToSheet() {
     if (payload.state?.updatedAt !== snapshot.updatedAt) {
       throw new Error("L'envoi n'a pas encore ete confirme par le Sheet.");
     }
+    applySyncedState(payload.state);
     state.settings.lastSyncedAt = snapshot.updatedAt;
     saveState();
-    renderSettings();
+    renderAll();
     renderSyncStatus("Donnees envoyees vers Google Sheets.", "ok");
   } catch (error) {
-    renderSyncStatus(error.message, "error");
+    renderSyncStatus(syncErrorMessage(error.message), "error");
   }
 }
 
@@ -826,6 +876,7 @@ function bindEvents() {
   $("#syncForm").addEventListener("submit", (event) => {
     event.preventDefault();
     saveSyncForm();
+    queueAutoPull();
   });
 
   $("#pullSyncButton").addEventListener("click", pullFromSheet);
@@ -856,11 +907,21 @@ function registerServiceWorker() {
   }
 }
 
+function startAutoSync() {
+  queueAutoPull();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      queueAutoPull();
+    }
+  });
+}
+
 fillFormDefaults();
 bindEvents();
 updateShiftPreview();
 renderAll();
 registerServiceWorker();
+startAutoSync();
 
 window.financeHubDebug = {
   getState: () => state,
