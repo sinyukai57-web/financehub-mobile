@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.11";
-const STORAGE_KEY = "financehub-mobile-v011";
+const APP_VERSION = "v0.12";
+const STORAGE_KEY = "financehub-mobile-v012";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v011",
   "financehub-mobile-v010",
   "financehub-mobile-v09",
   "financehub-mobile-v08",
@@ -678,6 +679,32 @@ function expenseMergeKey(expense) {
   ].join("|");
 }
 
+function rowsContainAll(remoteRows = [], expectedRows = [], keyFn) {
+  const remoteKeys = new Set(remoteRows.map(keyFn));
+  return expectedRows.every((row) => remoteKeys.has(keyFn(row)));
+}
+
+function snapshotConfirmed(remoteState, snapshot) {
+  if (!remoteState || typeof remoteState !== "object") return false;
+  return (
+    rowsContainAll(remoteState.shifts || [], snapshot.shifts || [], shiftMergeKey) &&
+    rowsContainAll(remoteState.advances || [], snapshot.advances || [], advanceMergeKey) &&
+    rowsContainAll(remoteState.expenses || [], snapshot.expenses || [], expenseMergeKey)
+  );
+}
+
+async function waitForPushConfirmation(snapshot) {
+  let lastPayload = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await wait(attempt === 0 ? 1800 : 1400);
+    lastPayload = await syncGet("pull");
+    if (snapshotConfirmed(lastPayload.state, snapshot)) {
+      return lastPayload;
+    }
+  }
+  throw new Error("L'envoi n'a pas encore ete confirme par le Sheet.");
+}
+
 function applySyncedState(remoteState) {
   if (!remoteState || typeof remoteState !== "object") {
     throw new Error("Aucune donnee valide recue.");
@@ -706,7 +733,10 @@ function syncUrl(action, callbackName) {
 }
 
 function syncErrorMessage(message) {
-  if (/script Google|repond pas|confirme/.test(message)) {
+  if (/confirme/.test(message)) {
+    return "L'envoi est parti, mais le Sheet met trop longtemps a renvoyer la confirmation. Attends quelques secondes puis clique Recevoir du Sheet pour verifier.";
+  }
+  if (/script Google|repond pas/.test(message)) {
     return `${message} Efface puis recolle l'URL complete du script, elle doit finir par /exec. Si l'URL est bonne, redeploie Apps Script en New version.`;
   }
   return message;
@@ -796,11 +826,7 @@ async function pushToSheet() {
         state: snapshot,
       }),
     });
-    await wait(1600);
-    const payload = await syncGet("pull");
-    if (payload.state?.updatedAt !== snapshot.updatedAt) {
-      throw new Error("L'envoi n'a pas encore ete confirme par le Sheet.");
-    }
+    const payload = await waitForPushConfirmation(snapshot);
     applySyncedState(payload.state);
     state.settings.lastSyncedAt = snapshot.updatedAt;
     saveState();
