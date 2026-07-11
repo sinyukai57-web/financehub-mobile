@@ -475,9 +475,13 @@ function importShifts_() {
   return rows_("Heures Adecco", 6, 500, 15)
     .filter(function (row) { return row[0]; })
     .map(function (row) {
+      const date = toIsoDate_(row[0]);
+      if (!isIsoDate_(date)) {
+        return null;
+      }
       return {
         id: "sheet-hours-" + row[0],
-        date: toIsoDate_(row[0]),
+        date: date,
         start: row[3] || "08:00",
         end: row[4] || "16:00",
         pausePaidMinutes: Math.round(parseNumber_(row[5], 0.42) * 60),
@@ -486,35 +490,46 @@ function importShifts_() {
         habillage: parseNumber_(row[14], 0) > 0,
         note: "Import Google Sheets",
       };
-    });
+    })
+    .filter(function (row) { return row; });
 }
 
 function importAdvances_() {
   return rows_("Acomptes", 11, 200, 10)
     .filter(function (row) { return row[0]; })
     .map(function (row, index) {
+      const date = toIsoDate_(row[0]);
+      if (!isIsoDate_(date)) {
+        return null;
+      }
       return {
         id: "sheet-advance-" + index + "-" + row[0],
-        date: toIsoDate_(row[0]),
+        date: date,
         amount: parseNumber_(row[3], 0),
         status: normalizeStatus_(row[7]),
         note: row[9] || row[5] || "",
       };
-    });
+    })
+    .filter(function (row) { return row; });
 }
 
 function importExpenses_() {
   return rows_("Depenses variables", 6, 700, 9)
     .filter(function (row) { return row[0] && row[4]; })
     .map(function (row, index) {
+      const date = toIsoDate_(row[0]);
+      if (!isIsoDate_(date)) {
+        return null;
+      }
       return {
         id: "sheet-expense-" + index + "-" + row[0],
-        date: toIsoDate_(row[0]),
+        date: date,
         amount: parseNumber_(row[4], 0),
         category: row[2] || "Autre",
         note: row[3] || row[8] || "",
       };
-    });
+    })
+    .filter(function (row) { return row; });
 }
 
 function rows_(name, startRow, maxRows, columns) {
@@ -560,7 +575,11 @@ function toIsoDate_(value) {
     const year = frenchMatch[3].length === 2 ? "20" + frenchMatch[3] : frenchMatch[3];
     return year + "-" + month + "-" + day;
   }
-  return text;
+  return "";
+}
+
+function isIsoDate_(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
 }
 
 function monthStart_(date) {

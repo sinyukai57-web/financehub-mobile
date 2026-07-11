@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.10";
-const STORAGE_KEY = "financehub-mobile-v010";
+const APP_VERSION = "v0.11";
+const STORAGE_KEY = "financehub-mobile-v011";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v010",
   "financehub-mobile-v09",
   "financehub-mobile-v08",
   "financehub-mobile-v07",
@@ -89,9 +90,10 @@ function migrateState(savedState) {
     settings,
     shifts: savedState.shifts
       .filter((shift) => shift.note !== "Pre-rempli hors week-end")
-      .map(normalizeShift),
-    advances: savedState.advances.map(normalizeAdvance),
-    expenses: savedState.expenses.map(normalizeExpense),
+      .map(normalizeShift)
+      .filter((shift) => shift.date),
+    advances: savedState.advances.map(normalizeAdvance).filter((advance) => advance.date),
+    expenses: savedState.expenses.map(normalizeExpense).filter((expense) => expense.date),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
   LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
@@ -247,7 +249,7 @@ function normalizeDateValue(value) {
     return parsed.toISOString().slice(0, 10);
   }
 
-  return text;
+  return "";
 }
 
 function parseDate(value) {
@@ -639,9 +641,9 @@ function syncSnapshot() {
     appVersion: APP_VERSION,
     updatedAt: new Date().toISOString(),
     settings: normalizeSettings(safeSettings),
-    shifts: state.shifts,
-    advances: state.advances,
-    expenses: state.expenses,
+    shifts: state.shifts.filter((shift) => shift.date),
+    advances: state.advances.filter((advance) => advance.date),
+    expenses: state.expenses.filter((expense) => expense.date),
   };
 }
 
