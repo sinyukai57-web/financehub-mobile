@@ -9,7 +9,7 @@ function doGet(e) {
     if (action === "pull") {
       return {
         ok: true,
-        state: loadState_() || importWorkbook_(),
+        state: mergeStates_(importWorkbook_(), loadState_()),
         serverTime: new Date().toISOString(),
       };
     }
@@ -32,11 +32,58 @@ function doPost(e) {
   }
   saveState_(body.state);
   writeReadableTabs_(body.state);
+  writeMainExpenses_(body.state);
   return output_({
     ok: true,
     updatedAt: body.state && body.state.updatedAt,
     serverTime: new Date().toISOString(),
   });
+}
+
+function mergeStates_(sheetState, savedState) {
+  if (!savedState) {
+    return sheetState;
+  }
+  return {
+    schemaVersion: 1,
+    appVersion: savedState.appVersion || sheetState.appVersion || "merged",
+    updatedAt: newestDate_(sheetState.updatedAt, savedState.updatedAt),
+    settings: Object.assign({}, sheetState.settings || {}, savedState.settings || {}),
+    shifts: mergeRows_(sheetState.shifts || [], savedState.shifts || [], shiftKey_),
+    advances: mergeRows_(sheetState.advances || [], savedState.advances || [], advanceKey_),
+    expenses: mergeRows_(sheetState.expenses || [], savedState.expenses || [], expenseKey_),
+  };
+}
+
+function newestDate_(a, b) {
+  return new Date(a || 0) > new Date(b || 0) ? a : b;
+}
+
+function mergeRows_(first, second, keyFn) {
+  const map = {};
+  first.concat(second).forEach(function (item) {
+    const key = keyFn(item);
+    map[key] = item;
+  });
+  return Object.keys(map).map(function (key) { return map[key]; });
+}
+
+function shiftKey_(shift) {
+  return ["shift", shift.date, shift.start, shift.end, shift.site].join("|");
+}
+
+function advanceKey_(advance) {
+  return ["advance", advance.date, Number(advance.amount || 0).toFixed(2), advance.status, advance.note].join("|");
+}
+
+function expenseKey_(expense) {
+  return [
+    "expense",
+    expense.date,
+    Number(expense.amount || 0).toFixed(2),
+    expense.category,
+    expense.note,
+  ].join("|");
 }
 
 function handle_(e, fn) {
@@ -159,6 +206,46 @@ function writeReadableTabs_(state) {
   }));
 }
 
+function writeMainExpenses_(state) {
+  const sheet = spreadsheet_().getSheetByName("Depenses variables");
+  if (!sheet) {
+    return;
+  }
+
+  const marker = "FinanceHub Mobile ID:";
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 6) {
+    const notes = sheet.getRange(6, 9, lastRow - 5, 1).getDisplayValues();
+    for (let index = notes.length - 1; index >= 0; index--) {
+      if (String(notes[index][0] || "").indexOf(marker) >= 0) {
+        sheet.deleteRow(index + 6);
+      }
+    }
+  }
+
+  const mobileExpenses = (state.expenses || []).filter(function (expense) {
+    return expense.date && !String(expense.id || "").startsWith("sheet-expense-");
+  });
+  if (!mobileExpenses.length) {
+    return;
+  }
+
+  const rows = mobileExpenses.map(function (expense) {
+    return [
+      expense.date || "",
+      monthStart_(expense.date),
+      expense.category || "Autre",
+      expense.note || "Depense mobile",
+      Number(expense.amount || 0),
+      "FinanceHub Mobile",
+      "App",
+      "A verifier",
+      marker + " " + (expense.id || ""),
+    ];
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
+}
+
 function writeTable_(name, headers, rows) {
   const sheet = sheet_(name);
   const values = [headers].concat(rows.length ? rows : [["", "", "", "", "", "", "", ""].slice(0, headers.length)]);
@@ -269,6 +356,11 @@ function toIsoDate_(value) {
   const text = String(value || "");
   const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return match ? match[0] : text;
+}
+
+function monthStart_(date) {
+  const iso = toIsoDate_(date);
+  return iso ? iso.slice(0, 7) + "-01" : "";
 }
 
 function normalizeStatus_(value) {
