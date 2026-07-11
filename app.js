@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.5";
-const STORAGE_KEY = "financehub-mobile-v05";
+const APP_VERSION = "v0.6";
+const STORAGE_KEY = "financehub-mobile-v06";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v05",
   "financehub-mobile-v04",
   "financehub-mobile-v03",
   "financehub-mobile-v02",
@@ -44,6 +45,7 @@ const viewTitles = {
 };
 
 let state = loadState();
+let autoSyncTimer = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -580,6 +582,15 @@ function wait(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function queueAutoPush(reason = "Modification locale") {
+  if (!syncConfigured()) return;
+  window.clearTimeout(autoSyncTimer);
+  autoSyncTimer = window.setTimeout(async () => {
+    renderSyncStatus(`${reason}. Envoi automatique...`, "busy");
+    await pushToSheet();
+  }, 600);
+}
+
 async function pullFromSheet() {
   saveSyncForm();
   try {
@@ -714,6 +725,7 @@ function bindEvents() {
     $("#shiftDate").value = shift.date;
     updateShiftPreview();
     renderAll();
+    queueAutoPush("Heures enregistrees");
   });
 
   $("#shiftList").addEventListener("click", (event) => {
@@ -738,6 +750,7 @@ function bindEvents() {
       state.shifts = state.shifts.filter((item) => item.id !== deleteButton.dataset.deleteShift);
       saveState();
       renderAll();
+      queueAutoPush("Heures modifiees");
     }
   });
 
@@ -754,6 +767,7 @@ function bindEvents() {
     $("#advanceAmount").value = "";
     $("#advanceNote").value = "";
     renderAll();
+    queueAutoPush("Acompte enregistre");
   });
 
   $("#advanceList").addEventListener("click", (event) => {
@@ -762,6 +776,7 @@ function bindEvents() {
     state.advances = state.advances.filter((item) => item.id !== button.dataset.deleteAdvance);
     saveState();
     renderAll();
+    queueAutoPush("Acomptes modifies");
   });
 
   $("#expenseForm").addEventListener("submit", (event) => {
@@ -777,6 +792,7 @@ function bindEvents() {
     $("#expenseAmount").value = "";
     $("#expenseNote").value = "";
     renderAll();
+    queueAutoPush("Depense enregistree");
   });
 
   $("#expenseList").addEventListener("click", (event) => {
@@ -785,6 +801,7 @@ function bindEvents() {
     state.expenses = state.expenses.filter((item) => item.id !== button.dataset.deleteExpense);
     saveState();
     renderAll();
+    queueAutoPush("Depenses modifiees");
   });
 
   $("#settingsForm").addEventListener("submit", (event) => {
