@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.9";
-const STORAGE_KEY = "financehub-mobile-v09";
+const APP_VERSION = "v0.10";
+const STORAGE_KEY = "financehub-mobile-v010";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v09",
   "financehub-mobile-v08",
   "financehub-mobile-v07",
   "financehub-mobile-v06",
@@ -75,7 +76,7 @@ function loadState() {
 }
 
 function migrateState(savedState) {
-  const settings = { ...savedState.settings };
+  const settings = normalizeSettings(savedState.settings);
   if (settings.cash === 57.95) {
     settings.cash = 237.95;
   }
@@ -95,6 +96,41 @@ function migrateState(savedState) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
   LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
   return cleaned;
+}
+
+function coerceSettingNumber(value, fallback, options = {}) {
+  const text = String(value ?? "").trim();
+  if (!text) return fallback;
+  const normalized = text
+    .replace(/\s/g, "")
+    .replace(/[^\d,.-]/g, "")
+    .replace(",", ".");
+  if (!normalized) return fallback;
+  const number = Number(normalized);
+  if (!Number.isFinite(number)) return fallback;
+  if (options.positive && number <= 0) return fallback;
+  return number;
+}
+
+function normalizeSettings(settings = {}) {
+  return {
+    ...defaultSettings,
+    ...settings,
+    hourlyRate: coerceSettingNumber(settings.hourlyRate, defaultSettings.hourlyRate, { positive: true }),
+    netRate: coerceSettingNumber(settings.netRate, defaultSettings.netRate, { positive: true }),
+    ifmRate: coerceSettingNumber(settings.ifmRate, defaultSettings.ifmRate),
+    paidLeaveRate: coerceSettingNumber(settings.paidLeaveRate, defaultSettings.paidLeaveRate),
+    panier: coerceSettingNumber(settings.panier, defaultSettings.panier),
+    habillage: coerceSettingNumber(settings.habillage, defaultSettings.habillage),
+    cash: coerceSettingNumber(settings.cash, defaultSettings.cash),
+    otherIncome: coerceSettingNumber(settings.otherIncome, defaultSettings.otherIncome),
+    fixedCharges: coerceSettingNumber(settings.fixedCharges, defaultSettings.fixedCharges),
+    baseExpenses: coerceSettingNumber(settings.baseExpenses, defaultSettings.baseExpenses),
+    reserveTarget: coerceSettingNumber(settings.reserveTarget, defaultSettings.reserveTarget),
+    syncUrl: String(settings.syncUrl || ""),
+    syncSecret: String(settings.syncSecret || ""),
+    lastSyncedAt: safeIsoDateTime(settings.lastSyncedAt) || "",
+  };
 }
 
 function normalizeShift(shift) {
@@ -176,6 +212,19 @@ function saveState() {
 
 function parseAmount(value) {
   return Number(String(value).replace(",", ".")) || 0;
+}
+
+function safeIsoDateTime(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+}
+
+function formatDateTime(value) {
+  const iso = safeIsoDateTime(value);
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("fr-FR");
 }
 
 function normalizeDateValue(value) {
@@ -549,7 +598,10 @@ function renderSyncStatus(message, type = "") {
   if (message) {
     status.textContent = message;
   } else if (state.settings.lastSyncedAt) {
-    status.textContent = `Derniere synchro: ${new Date(state.settings.lastSyncedAt).toLocaleString("fr-FR")}`;
+    const lastSyncedAt = formatDateTime(state.settings.lastSyncedAt);
+    status.textContent = lastSyncedAt
+      ? `Derniere synchro: ${lastSyncedAt}`
+      : "La synchro est configuree. Tu peux envoyer ou recevoir les donnees.";
   } else {
     status.textContent = configured
       ? "La synchro est configuree. Tu peux envoyer ou recevoir les donnees."
@@ -586,7 +638,7 @@ function syncSnapshot() {
     schemaVersion: 1,
     appVersion: APP_VERSION,
     updatedAt: new Date().toISOString(),
-    settings: safeSettings,
+    settings: normalizeSettings(safeSettings),
     shifts: state.shifts,
     advances: state.advances,
     expenses: state.expenses,
@@ -631,10 +683,10 @@ function applySyncedState(remoteState) {
   const keepSync = {
     syncUrl: state.settings.syncUrl,
     syncSecret: state.settings.syncSecret,
-    lastSyncedAt: remoteState.updatedAt || new Date().toISOString(),
+    lastSyncedAt: safeIsoDateTime(remoteState.updatedAt) || new Date().toISOString(),
   };
   state = migrateState({
-    settings: { ...defaultSettings, ...state.settings, ...(remoteState.settings || {}), ...keepSync },
+    settings: normalizeSettings({ ...state.settings, ...(remoteState.settings || {}), ...keepSync }),
     shifts: mergeRowsByKey(remoteState.shifts || [], state.shifts || [], shiftMergeKey),
     advances: mergeRowsByKey(remoteState.advances || [], state.advances || [], advanceMergeKey),
     expenses: mergeRowsByKey(remoteState.expenses || [], state.expenses || [], expenseMergeKey),

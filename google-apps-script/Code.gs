@@ -59,7 +59,23 @@ function mergeStates_(sheetState, savedState) {
 }
 
 function newestDate_(a, b) {
-  return new Date(a || 0) > new Date(b || 0) ? a : b;
+  const first = safeDate_(a);
+  const second = safeDate_(b);
+  if (!first && !second) {
+    return new Date().toISOString();
+  }
+  if (!first) {
+    return second.toISOString();
+  }
+  if (!second) {
+    return first.toISOString();
+  }
+  return first > second ? first.toISOString() : second.toISOString();
+}
+
+function safeDate_(value) {
+  const date = new Date(value || "");
+  return isNaN(date.getTime()) ? null : date;
 }
 
 function mergeRows_(first, second, keyFn) {
@@ -514,10 +530,16 @@ function rows_(name, startRow, maxRows, columns) {
 }
 
 function parseNumber_(value, fallback) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return fallback;
+  }
   const normalized = String(value || "")
     .replace(/\s/g, "")
     .replace(/[^\d,.-]/g, "")
     .replace(",", ".");
+  if (!normalized) {
+    return fallback;
+  }
   const number = Number(normalized);
   return Number.isFinite(number) ? number : fallback;
 }
