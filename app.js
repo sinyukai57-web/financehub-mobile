@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.12";
-const STORAGE_KEY = "financehub-mobile-v012";
+const APP_VERSION = "v0.13";
+const STORAGE_KEY = "financehub-mobile-v013";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v012",
   "financehub-mobile-v011",
   "financehub-mobile-v010",
   "financehub-mobile-v09",
@@ -264,6 +265,25 @@ function dateSortKey(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : "0000-00-00";
 }
 
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(monthKey) {
+  const parsed = new Date(`${monthKey}-01T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "Mois en cours";
+  const label = new Intl.DateTimeFormat("fr-FR", {
+    month: "long",
+    year: "numeric",
+  }).format(parsed);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function isInMonth(date, monthKey) {
+  return dateSortKey(date).startsWith(`${monthKey}-`);
+}
+
 function formatMoney(value) {
   return money.format(value || 0).replace(/\u00a0/g, " ");
 }
@@ -359,13 +379,36 @@ function calculatePayroll(shifts) {
   );
 }
 
-function localExpenseTotal() {
-  return state.expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+function sumPayrollRows(rows) {
+  return rows.reduce(
+    (total, row) => {
+      total.hours += row.hours;
+      total.normal += row.normal;
+      total.ot25 += row.ot25;
+      total.ot50 += row.ot50;
+      total.gross += row.grossTotal;
+      total.net += row.net;
+      total.rows.push(row);
+      return total;
+    },
+    { hours: 0, normal: 0, ot25: 0, ot50: 0, gross: 0, net: 0, rows: [] },
+  );
 }
 
-function advanceWatchTotal() {
+function payrollForMonth(monthKey) {
+  const payroll = calculatePayroll(state.shifts);
+  return sumPayrollRows(payroll.rows.filter((row) => isInMonth(row.shift.date, monthKey)));
+}
+
+function localExpenseTotal(monthKey = "") {
+  return state.expenses
+    .filter((expense) => !monthKey || isInMonth(expense.date, monthKey))
+    .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+}
+
+function advanceWatchTotal(monthKey = "") {
   return state.advances
-    .filter((advance) => advance.status !== "Deduit")
+    .filter((advance) => advance.status !== "Deduit" && (!monthKey || isInMonth(advance.date, monthKey)))
     .reduce((sum, advance) => sum + Number(advance.amount || 0), 0);
 }
 
@@ -376,16 +419,17 @@ function advanceRemainTotal() {
 }
 
 function dashboardTotals() {
-  const payroll = calculatePayroll(state.shifts);
-  const expenses = localExpenseTotal();
+  const monthKey = currentMonthKey();
+  const payroll = payrollForMonth(monthKey);
+  const expenses = localExpenseTotal(monthKey);
   const outgoing = state.settings.fixedCharges + expenses;
-  const income = state.settings.otherIncome;
+  const income = state.settings.otherIncome + payroll.net;
   const availableAfter = state.settings.cash + income - outgoing;
   const investSafe = Math.max(
     0,
     Math.min(income * 0.05, availableAfter - state.settings.reserveTarget),
   );
-  return { payroll, expenses, outgoing, income, availableAfter, investSafe };
+  return { monthKey, payroll, expenses, outgoing, income, availableAfter, investSafe };
 }
 
 function renderAll() {
@@ -398,8 +442,9 @@ function renderAll() {
 
 function renderDashboard() {
   const totals = dashboardTotals();
-  const watch = advanceWatchTotal();
+  const watch = advanceWatchTotal(totals.monthKey);
 
+  $("#monthLabel").textContent = formatMonthLabel(totals.monthKey);
   $("#availableAfter").textContent = formatMoney(totals.availableAfter);
   $("#estimatedPay").textContent = formatMoney(totals.payroll.net);
   $("#advanceWatch").textContent = formatMoney(watch);
@@ -417,9 +462,9 @@ function renderDashboard() {
   const watchItems = [];
   if (watch > 0) {
     watchItems.push({
-      title: "Acompte a verifier",
+      title: "Acompte du mois a verifier",
       value: formatMoney(watch),
-      detail: "Reste connu a deduire ou confirmer",
+      detail: "Non deduit dans le mois affiche",
     });
   }
   if (totals.availableAfter < state.settings.reserveTarget) {
@@ -489,11 +534,13 @@ function latestActivities() {
 }
 
 function renderShifts() {
-  const payroll = calculatePayroll(state.shifts);
-  $("#shiftMonthTotal").textContent = formatMoney(payroll.net);
-  $("#shiftCount").textContent = `${state.shifts.length} jours`;
+  const monthKey = currentMonthKey();
+  const fullPayroll = calculatePayroll(state.shifts);
+  const monthPayroll = sumPayrollRows(fullPayroll.rows.filter((row) => isInMonth(row.shift.date, monthKey)));
+  $("#shiftMonthTotal").textContent = formatMoney(monthPayroll.net);
+  $("#shiftCount").textContent = `${monthPayroll.rows.length} jours ce mois`;
 
-  const rowMap = new Map(payroll.rows.map((row) => [row.shift.id, row]));
+  const rowMap = new Map(fullPayroll.rows.map((row) => [row.shift.id, row]));
   $("#shiftList").innerHTML = state.shifts.length
     ? [...state.shifts]
         .sort((a, b) => dateSortKey(b.date).localeCompare(dateSortKey(a.date)))
@@ -552,8 +599,10 @@ function renderAdvances() {
 }
 
 function renderExpenses() {
-  $("#expenseMonthTotal").textContent = formatMoney(localExpenseTotal());
-  $("#expenseCount").textContent = `${state.expenses.length}`;
+  const monthKey = currentMonthKey();
+  const monthlyExpenses = state.expenses.filter((expense) => isInMonth(expense.date, monthKey));
+  $("#expenseMonthTotal").textContent = formatMoney(localExpenseTotal(monthKey));
+  $("#expenseCount").textContent = `${monthlyExpenses.length} ce mois`;
   $("#expenseList").innerHTML = state.expenses.length
     ? [...state.expenses]
         .sort((a, b) => dateSortKey(b.date).localeCompare(dateSortKey(a.date)))
