@@ -1,9 +1,9 @@
-const CACHE_NAME = "financehub-mobile-v014";
+const CACHE_NAME = "financehub-mobile-v015";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=014",
-  "./app.js?v=014",
+  "./styles.css?v=015",
+  "./app.js?v=015",
   "./manifest.json",
   "./manifest.webmanifest",
   "./icon.svg",

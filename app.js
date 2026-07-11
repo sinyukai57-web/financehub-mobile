@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.14";
-const STORAGE_KEY = "financehub-mobile-v014";
+const APP_VERSION = "v0.15";
+const STORAGE_KEY = "financehub-mobile-v015";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v014",
   "financehub-mobile-v013",
   "financehub-mobile-v012",
   "financehub-mobile-v011",
@@ -792,17 +793,35 @@ function syncUrl(action, callbackName) {
   return url.toString();
 }
 
+function syncFrameUrl(action, frameToken) {
+  const url = new URL(cleanSyncUrl(state.settings.syncUrl));
+  url.searchParams.set("action", action === "pull" ? "pullFrame" : action);
+  url.searchParams.set("secret", state.settings.syncSecret.trim());
+  url.searchParams.set("frameToken", frameToken);
+  url.searchParams.set("_", String(Date.now()));
+  return url.toString();
+}
+
 function syncErrorMessage(message) {
   if (/confirme/.test(message)) {
     return "L'envoi est parti, mais le Sheet met trop longtemps a renvoyer la confirmation. Attends quelques secondes puis clique Recevoir du Sheet pour verifier.";
   }
   if (/script Google|repond pas/.test(message)) {
-    return `${message} Efface puis recolle l'URL complete du script, elle doit finir par /exec. Si l'URL est bonne, redeploie Apps Script en New version.`;
+    return `${message} Sur telephone, essaie Chrome sans VPN ni bloqueur, puis verifie que l'URL finit par /exec.`;
   }
   return message;
 }
 
 function syncGet(action) {
+  return syncGetJsonp(action).catch((error) => {
+    if (/script Google|repond pas/.test(error.message)) {
+      return syncGetFrame(action);
+    }
+    throw error;
+  });
+}
+
+function syncGetJsonp(action) {
   return new Promise((resolve, reject) => {
     if (!syncConfigured()) {
       reject(new Error("Synchronisation non configuree."));
@@ -836,6 +855,51 @@ function syncGet(action) {
     };
     script.src = syncUrl(action, callbackName);
     document.body.appendChild(script);
+  });
+}
+
+function syncGetFrame(action) {
+  return new Promise((resolve, reject) => {
+    if (!syncConfigured()) {
+      reject(new Error("Synchronisation non configuree."));
+      return;
+    }
+
+    const frameToken = `financeHubFrame_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const iframe = document.createElement("iframe");
+    iframe.hidden = true;
+    iframe.setAttribute("aria-hidden", "true");
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      iframe.remove();
+    };
+
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Le script Google ne repond pas sur ce telephone."));
+    }, 20000);
+
+    const onMessage = (event) => {
+      const payload = event.data;
+      if (!payload || payload.frameToken !== frameToken) return;
+      cleanup();
+      if (payload.ok) {
+        resolve(payload);
+      } else {
+        reject(new Error(payload.error || "Erreur de synchronisation."));
+      }
+    };
+
+    iframe.onerror = () => {
+      cleanup();
+      reject(new Error("Impossible de joindre le script Google sur ce telephone."));
+    };
+
+    window.addEventListener("message", onMessage);
+    iframe.src = syncFrameUrl(action, frameToken);
+    document.body.appendChild(iframe);
   });
 }
 

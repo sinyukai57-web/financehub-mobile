@@ -3,6 +3,25 @@ const SYNC_SECRET = "CHANGE_MOI";
 const SYNC_SHEET_NAME = "Mobile Sync";
 
 function doGet(e) {
+  const params = (e && e.parameter) || {};
+  if (params.action === "pullFrame") {
+    try {
+      checkSecret_(params.secret);
+      return outputFrame_({
+        ok: true,
+        frameToken: params.frameToken || "",
+        state: mergeStates_(importWorkbook_(), loadState_()),
+        serverTime: new Date().toISOString(),
+      });
+    } catch (error) {
+      return outputFrame_({
+        ok: false,
+        frameToken: params.frameToken || "",
+        error: String(error && error.message ? error.message : error),
+      });
+    }
+  }
+
   return handle_(e, function (params) {
     checkSecret_(params.secret);
     const action = params.action || "pull";
@@ -122,6 +141,20 @@ function output_(payload, callback) {
     );
   }
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+function outputFrame_(payload) {
+  const json = JSON.stringify(payload).replace(/</g, "\\u003c");
+  const html = [
+    "<!doctype html><html><body>",
+    "<script>",
+    "window.parent.postMessage(" + json + ", '*');",
+    "</script>",
+    "</body></html>",
+  ].join("");
+  return HtmlService
+    .createHtmlOutput(html)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function checkSecret_(secret) {
