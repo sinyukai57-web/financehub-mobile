@@ -148,8 +148,20 @@ function outputFrame_(payload) {
   const html = [
     "<!doctype html><html><body>",
     "<script>",
-    "window.parent.postMessage(" + json + ", '*');",
+    "var payload = " + json + ";",
+    "function send(){",
+    "  try { window.parent.postMessage(payload, '*'); } catch (e) {}",
+    "  try { window.top.postMessage(payload, '*'); } catch (e) {}",
+    "}",
+    "send();",
+    "var count = 0;",
+    "var timer = setInterval(function(){",
+    "  send();",
+    "  count += 1;",
+    "  if (count >= 10) clearInterval(timer);",
+    "}, 500);",
     "</script>",
+    "FinanceHub sync",
     "</body></html>",
   ].join("");
   return HtmlService

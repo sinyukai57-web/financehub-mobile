@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.15";
-const STORAGE_KEY = "financehub-mobile-v015";
+const APP_VERSION = "v0.16";
+const STORAGE_KEY = "financehub-mobile-v016";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v015",
   "financehub-mobile-v014",
   "financehub-mobile-v013",
   "financehub-mobile-v012",
@@ -867,8 +868,15 @@ function syncGetFrame(action) {
 
     const frameToken = `financeHubFrame_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const iframe = document.createElement("iframe");
-    iframe.hidden = true;
     iframe.setAttribute("aria-hidden", "true");
+    iframe.style.position = "fixed";
+    iframe.style.left = "-10px";
+    iframe.style.bottom = "-10px";
+    iframe.style.width = "1px";
+    iframe.style.height = "1px";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0.01";
+    iframe.style.pointerEvents = "none";
 
     const cleanup = () => {
       window.clearTimeout(timer);
