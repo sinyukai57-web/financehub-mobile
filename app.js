@@ -1,6 +1,7 @@
-const APP_VERSION = "v0.20";
-const STORAGE_KEY = "financehub-mobile-v020";
+const APP_VERSION = "v0.21";
+const STORAGE_KEY = "financehub-mobile-v021";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v020",
   "financehub-mobile-v019",
   "financehub-mobile-v018",
   "financehub-mobile-v017",
@@ -40,10 +41,10 @@ const defaultSettings = {
   paidLeaveRate: 10,
   panier: 4.35,
   habillage: 0.75,
-  cash: 128.12,
-  otherIncome: 982.89,
+  cash: 1111.01,
+  otherIncome: 0,
   fixedCharges: 734,
-  baseExpenses: 475.13,
+  baseExpenses: 584.96,
   reserveTarget: 1000,
   syncUrl: "",
   syncSecret: "",
@@ -831,9 +832,21 @@ function syncErrorMessage(message) {
     return "L'envoi est parti, mais le Sheet met trop longtemps a renvoyer la confirmation. Attends quelques secondes puis clique Recevoir du Sheet pour verifier.";
   }
   if (/script Google|repond pas/.test(message)) {
-    return `${message} Sur telephone, essaie Chrome sans VPN ni bloqueur, puis verifie que l'URL finit par /exec.`;
+    return `${message} Sur telephone, utilise Tester le script. Si la page affiche Code secret incorrect, le reseau est OK. Sinon, coupe VPN, DNS prive ou bloqueur, puis verifie que l'URL finit par /exec.`;
   }
   return message;
+}
+
+function testScriptAccess() {
+  saveSyncForm(false);
+  if (!state.settings.syncUrl) {
+    renderSyncStatus("Ajoute d'abord l'URL du script Google.", "error");
+    return;
+  }
+  const testUrl = cleanSyncUrl(state.settings.syncUrl);
+  $("#syncUrl").value = testUrl;
+  renderSyncStatus("J'ouvre le test. Si la page affiche Code secret incorrect, le script est joignable.", "busy");
+  window.open(`${testUrl}?action=pull`, "_blank", "noopener,noreferrer");
 }
 
 function syncGet(action) {
@@ -1191,6 +1204,7 @@ function bindEvents() {
 
   $("#pullSyncButton").addEventListener("click", pullFromSheet);
   $("#pushSyncButton").addEventListener("click", pushToSheet);
+  $("#testScriptButton").addEventListener("click", testScriptAccess);
 
   $("#exportButton").addEventListener("click", () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
