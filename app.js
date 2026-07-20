@@ -1,6 +1,8 @@
-const APP_VERSION = "v0.21";
-const STORAGE_KEY = "financehub-mobile-v021";
+const APP_VERSION = "v0.22";
+const STORAGE_KEY = "financehub-mobile-v022";
+const REDIRECT_HASH_KEY = "fh-sync";
 const LEGACY_STORAGE_KEYS = [
+  "financehub-mobile-v021",
   "financehub-mobile-v020",
   "financehub-mobile-v019",
   "financehub-mobile-v018",
@@ -692,14 +694,17 @@ function renderSyncStatus(message, type = "") {
   status.className = `sync-status${type ? ` is-${type}` : ""}`;
   $("#pullSyncButton").disabled = !configured;
   $("#pushSyncButton").disabled = !configured;
+  $("#rescuePullButton").disabled = !configured;
+  $("#rescuePushButton").disabled = !configured;
 }
 
 function cleanSyncUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
   const withoutSpaces = raw.replace(/\s/g, "");
-  if (/^https:\/\/script\.google\.com\/macros\/s\/[^/?#]+$/i.test(withoutSpaces)) {
-    return `${withoutSpaces}/exec`;
+  const match = withoutSpaces.match(/https:\/\/script\.google\.com\/macros\/s\/[^/?#]+(?:\/exec)?/i);
+  if (match) {
+    return match[0].replace(/\/exec$/i, "") + "/exec";
   }
   return withoutSpaces;
 }
@@ -827,12 +832,32 @@ function syncFrameUrl(action, frameToken) {
   return url.toString();
 }
 
+function redirectReturnUrl() {
+  const url = new URL(window.location.href);
+  url.hash = "";
+  url.searchParams.set("v", "022");
+  return url.toString();
+}
+
+function syncRedirectUrl(action) {
+  const url = new URL(cleanSyncUrl(state.settings.syncUrl));
+  url.searchParams.set("action", action);
+  url.searchParams.set("secret", state.settings.syncSecret.trim());
+  url.searchParams.set("returnUrl", redirectReturnUrl());
+  url.searchParams.set("_", String(Date.now()));
+  return url.toString();
+}
+
+function shouldUseRedirectFallback(message) {
+  return /script Google|repond pas|confirme|network|failed|load failed|fetch/i.test(String(message || ""));
+}
+
 function syncErrorMessage(message) {
   if (/confirme/.test(message)) {
     return "L'envoi est parti, mais le Sheet met trop longtemps a renvoyer la confirmation. Attends quelques secondes puis clique Recevoir du Sheet pour verifier.";
   }
   if (/script Google|repond pas/.test(message)) {
-    return `${message} Sur telephone, utilise Tester le script. Si la page affiche Code secret incorrect, le reseau est OK. Sinon, coupe VPN, DNS prive ou bloqueur, puis verifie que l'URL finit par /exec.`;
+    return `${message} Le mode secours mobile va passer par une page Google puis revenir dans l'app. Si meme cette page ne s'ouvre pas, coupe VPN, DNS prive ou bloqueur.`;
   }
   return message;
 }
@@ -845,8 +870,83 @@ function testScriptAccess() {
   }
   const testUrl = cleanSyncUrl(state.settings.syncUrl);
   $("#syncUrl").value = testUrl;
-  renderSyncStatus("J'ouvre le test. Si la page affiche Code secret incorrect, le script est joignable.", "busy");
-  window.open(`${testUrl}?action=pull`, "_blank", "noopener,noreferrer");
+  renderSyncStatus("J'ouvre le test. Si la page Google repond, le script est joignable.", "busy");
+  window.open(`${testUrl}?action=ping&_=${Date.now()}`, "_blank", "noopener,noreferrer");
+}
+
+function pullFromSheetRedirect() {
+  saveSyncForm(false);
+  if (!syncConfigured()) {
+    renderSyncStatus("Synchronisation non configuree.", "error");
+    return;
+  }
+  renderSyncStatus("Mode secours: ouverture de Google pour recevoir le Sheet...", "busy");
+  window.location.assign(syncRedirectUrl("pullRedirect"));
+}
+
+function pushToSheetRedirect(snapshot = syncSnapshot()) {
+  saveSyncForm(false);
+  if (!syncConfigured()) {
+    renderSyncStatus("Synchronisation non configuree.", "error");
+    return;
+  }
+  renderSyncStatus("Mode secours: ouverture de Google pour envoyer au Sheet...", "busy");
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = cleanSyncUrl(state.settings.syncUrl);
+  form.style.display = "none";
+  [
+    ["action", "pushRedirect"],
+    ["secret", state.settings.syncSecret.trim()],
+    ["returnUrl", redirectReturnUrl()],
+    ["state", JSON.stringify(snapshot)],
+  ].forEach(([name, value]) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
+}
+
+function handleSyncReturn() {
+  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
+  if (!hash) return false;
+  const params = new URLSearchParams(hash);
+  const rawPayload = params.get(REDIRECT_HASH_KEY);
+  if (!rawPayload) return false;
+
+  const cleanUrl = new URL(window.location.href);
+  cleanUrl.hash = "";
+  window.history.replaceState(null, "", cleanUrl.toString());
+
+  try {
+    const payload = JSON.parse(rawPayload);
+    if (!payload || !payload.ok) {
+      renderSyncStatus(payload?.error || "Retour Google invalide.", "error");
+      return true;
+    }
+    if (payload.state) {
+      applySyncedState(payload.state);
+      fillFormDefaults();
+      renderAll();
+      renderSyncStatus("Synchro recue par le mode secours mobile.", "ok");
+      return true;
+    }
+    if (payload.updatedAt) {
+      state.settings.lastSyncedAt = safeIsoDateTime(payload.updatedAt) || new Date().toISOString();
+      saveState();
+      fillFormDefaults();
+      renderAll();
+    }
+    renderSyncStatus("Envoi confirme par le mode secours mobile.", "ok");
+    return true;
+  } catch (error) {
+    renderSyncStatus("Retour Google impossible a lire.", "error");
+    return true;
+  }
 }
 
 function syncGet(action) {
@@ -976,15 +1076,21 @@ async function pullFromSheet(options = {}) {
     renderAll();
     renderSyncStatus(silent ? "Synchro automatique terminee." : "Donnees recues depuis Google Sheets.", "ok");
   } catch (error) {
+    if (!silent && shouldUseRedirectFallback(error.message)) {
+      renderSyncStatus(syncErrorMessage(error.message), "busy");
+      window.setTimeout(pullFromSheetRedirect, 700);
+      return;
+    }
     renderSyncStatus(syncErrorMessage(error.message), "error");
   }
 }
 
 async function pushToSheet() {
   saveSyncForm(false);
+  let snapshot = null;
   try {
     renderSyncStatus("Envoi vers Google Sheets...", "busy");
-    const snapshot = syncSnapshot();
+    snapshot = syncSnapshot();
     await fetch(cleanSyncUrl(state.settings.syncUrl), {
       method: "POST",
       mode: "no-cors",
@@ -1001,6 +1107,11 @@ async function pushToSheet() {
     renderAll();
     renderSyncStatus("Donnees envoyees vers Google Sheets.", "ok");
   } catch (error) {
+    if (snapshot && shouldUseRedirectFallback(error.message)) {
+      renderSyncStatus(syncErrorMessage(error.message), "busy");
+      window.setTimeout(() => pushToSheetRedirect(snapshot), 700);
+      return;
+    }
     renderSyncStatus(syncErrorMessage(error.message), "error");
   }
 }
@@ -1204,6 +1315,8 @@ function bindEvents() {
 
   $("#pullSyncButton").addEventListener("click", pullFromSheet);
   $("#pushSyncButton").addEventListener("click", pushToSheet);
+  $("#rescuePullButton").addEventListener("click", pullFromSheetRedirect);
+  $("#rescuePushButton").addEventListener("click", () => pushToSheetRedirect());
   $("#testScriptButton").addEventListener("click", testScriptAccess);
 
   $("#exportButton").addEventListener("click", () => {
@@ -1231,8 +1344,10 @@ function registerServiceWorker() {
   }
 }
 
-function startAutoSync() {
-  queueAutoPull();
+function startAutoSync(options = {}) {
+  if (!options.skipInitialPull) {
+    queueAutoPull();
+  }
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       queueAutoPull();
@@ -1244,8 +1359,9 @@ fillFormDefaults();
 bindEvents();
 updateShiftPreview();
 renderAll();
+const handledSyncReturn = handleSyncReturn();
 registerServiceWorker();
-startAutoSync();
+startAutoSync({ skipInitialPull: handledSyncReturn });
 
 window.financeHubDebug = {
   getState: () => state,

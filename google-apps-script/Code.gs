@@ -1,9 +1,20 @@
 const SPREADSHEET_ID = "10XJELK1gXiBho_0YdpGvEzyDOOV_kzbW25C47iku1lw";
 const SYNC_SECRET = "CHANGE_MOI";
 const SYNC_SHEET_NAME = "Mobile Sync";
+const SYNC_API_VERSION = "2026-07-20-redirect-v1";
+const APP_RETURN_URL = "https://sinyukai57-web.github.io/financehub-mobile/?v=022";
+const APP_RETURN_PREFIX = "https://sinyukai57-web.github.io/financehub-mobile/";
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
+  if (params.action === "ping") {
+    return output_({
+      ok: true,
+      apiVersion: SYNC_API_VERSION,
+      serverTime: new Date().toISOString(),
+    });
+  }
+
   if (params.action === "pullFrame") {
     try {
       checkSecret_(params.secret);
@@ -17,6 +28,24 @@ function doGet(e) {
       return outputFrame_({
         ok: false,
         frameToken: params.frameToken || "",
+        error: String(error && error.message ? error.message : error),
+      });
+    }
+  }
+
+  if (params.action === "pullRedirect") {
+    try {
+      checkSecret_(params.secret);
+      return outputRedirect_(params.returnUrl, {
+        ok: true,
+        apiVersion: SYNC_API_VERSION,
+        state: mergeStates_(importWorkbook_(), loadState_()),
+        serverTime: new Date().toISOString(),
+      });
+    } catch (error) {
+      return outputRedirect_(params.returnUrl, {
+        ok: false,
+        apiVersion: SYNC_API_VERSION,
         error: String(error && error.message ? error.message : error),
       });
     }
@@ -44,22 +73,41 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  const body = JSON.parse(e.postData && e.postData.contents ? e.postData.contents : "{}");
-  checkSecret_(body.secret);
-  if (body.action !== "push") {
-    throw new Error("Action POST inconnue.");
+  let body = {};
+  try {
+    body = parsePostBody_(e);
+    checkSecret_(body.secret);
+    if (body.action !== "push" && body.action !== "pushRedirect") {
+      throw new Error("Action POST inconnue.");
+    }
+    saveState_(storageState_(body.state));
+    writeReadableTabs_(body.state);
+    writeMainShifts_(body.state);
+    writeMainAdvances_(body.state);
+    writeMainAdvanceRevenues_(body.state);
+    writeMainExpenses_(body.state);
+    const payload = {
+      ok: true,
+      apiVersion: SYNC_API_VERSION,
+      updatedAt: body.state && body.state.updatedAt,
+      state: mergeStates_(importWorkbook_(), loadState_()),
+      serverTime: new Date().toISOString(),
+    };
+    if (body.action === "pushRedirect" || body.returnUrl) {
+      return outputRedirect_(body.returnUrl, payload);
+    }
+    return output_(payload);
+  } catch (error) {
+    const payload = {
+      ok: false,
+      apiVersion: SYNC_API_VERSION,
+      error: String(error && error.message ? error.message : error),
+    };
+    if (body && (body.action === "pushRedirect" || body.returnUrl)) {
+      return outputRedirect_(body.returnUrl, payload);
+    }
+    return output_(payload);
   }
-  saveState_(storageState_(body.state));
-  writeReadableTabs_(body.state);
-  writeMainShifts_(body.state);
-  writeMainAdvances_(body.state);
-  writeMainAdvanceRevenues_(body.state);
-  writeMainExpenses_(body.state);
-  return output_({
-    ok: true,
-    updatedAt: body.state && body.state.updatedAt,
-    serverTime: new Date().toISOString(),
-  });
 }
 
 function storageState_(state) {
@@ -183,6 +231,58 @@ function outputFrame_(payload) {
   return HtmlService
     .createHtmlOutput(html)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function outputRedirect_(returnUrl, payload) {
+  const target = safeReturnUrl_(returnUrl);
+  const json = JSON.stringify(payload).replace(/</g, "\\u003c");
+  const html = [
+    "<!doctype html><html><head>",
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+    "<style>",
+    "body{font-family:Arial,sans-serif;margin:24px;background:#f4faf8;color:#0f172a}",
+    ".box{max-width:420px;margin:10vh auto;padding:18px;border:1px solid #cce6df;border-radius:12px;background:#fff}",
+    "a{color:#0f766e;font-weight:700}",
+    "</style>",
+    "</head><body><div class=\"box\">",
+    "<strong>FinanceHub</strong><p>Synchronisation en cours, retour vers l'app...</p>",
+    "<p><a id=\"fallback\" href=\"#\">Retourner a FinanceHub</a></p>",
+    "</div><script>",
+    "var target = " + JSON.stringify(target) + ";",
+    "var payload = " + json + ";",
+    "var next = target + (target.indexOf('#') >= 0 ? '&' : '#') + 'fh-sync=' + encodeURIComponent(JSON.stringify(payload));",
+    "document.getElementById('fallback').href = next;",
+    "setTimeout(function(){ location.replace(next); }, 100);",
+    "</script></body></html>",
+  ].join("");
+  return HtmlService.createHtmlOutput(html);
+}
+
+function safeReturnUrl_(returnUrl) {
+  const text = String(returnUrl || "").trim();
+  if (text.indexOf(APP_RETURN_PREFIX) === 0) {
+    return text.split("#")[0];
+  }
+  return APP_RETURN_URL;
+}
+
+function parsePostBody_(e) {
+  const params = Object.assign({}, (e && e.parameter) || {});
+  if (params.state) {
+    params.state = JSON.parse(params.state);
+    return params;
+  }
+
+  const text = e && e.postData && e.postData.contents ? e.postData.contents : "";
+  if (!text) {
+    return params;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return params;
+  }
 }
 
 function checkSecret_(secret) {
